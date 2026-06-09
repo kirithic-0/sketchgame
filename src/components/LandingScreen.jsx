@@ -54,7 +54,7 @@ export function LandingScreen({
         <div className="step-card" style={{ transform: 'rotate(-1deg)' }}>
           <div className="step-number step-three">3</div>
           <h3 className="step-title">Face the Consequence</h3>
-          <p className="step-text">AI scores your design and logs the funny chain reaction.</p>
+          <p className="step-text">The Game Master scores your design and logs the funny chain reaction.</p>
         </div>
       </div>
 
@@ -64,7 +64,7 @@ export function LandingScreen({
         <div className="main-logo-badge">
           <div className="badge">
             <Sparkles className="badge-icon" strokeWidth={3} />
-            <span>Powered by Gemini 2.5 Flash Vision</span>
+            <span>Interactive Drawing & City Exploration</span>
           </div>
         </div>
 

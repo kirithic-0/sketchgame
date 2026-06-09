@@ -102,9 +102,9 @@ export function GameScreen({
                       <Sparkles className="scanning-sparkle animate-pulse" strokeWidth={3} />
                     </div>
                     <div>
-                      <h4 className="scanning-title">Vision AI Analyzing...</h4>
+                      <h4 className="scanning-title">Game Master Evaluating...</h4>
                       <p className="scanning-text">
-                        Gemini is currently evaluating your strokes in context of the scene, calculating consequences, and rendering your score. Hold tight!
+                        The Game Master is currently evaluating your strokes in context of the scene, calculating consequences, and rendering your score. Hold tight!
                       </p>
                     </div>
                   </div>

@@ -10,14 +10,14 @@ export function Header({ activeScreen, setActiveScreen }) {
         </div>
         <div className="logo-text-block">
           <h1 className="logo-title">GeoSketch</h1>
-          <p className="logo-subtitle">AI Drawing Street Game</p>
+          <p className="logo-subtitle">Interactive Drawing Street Game</p>
         </div>
       </div>
 
       <div className="nav-actions">
         <div className="badge badge-success">
           <CheckCircle className="h-3.5 w-3.5" />
-          <span>FastAPI Connected</span>
+          <span>Game Server Connected</span>
         </div>
         
         {activeScreen === 'game' && (

@@ -18,7 +18,8 @@ export function ResultScreen({
   onNextRound,
   onBackToLeaderboard,
   strokesCount,
-  currentRound = 1
+  currentRound = 1,
+  initialStrokes = []
 }) {
   return (
     <div className="game-layout-results-three-col">
@@ -58,6 +59,7 @@ export function ResultScreen({
               <DrawingCanvas
                 ref={canvasRef}
                 isDrawingMode={false}
+                initialStrokes={initialStrokes}
               />
             </div>
           ) : (
@@ -74,7 +76,7 @@ export function ResultScreen({
         <div className="results-panel">
           <div className="results-header">
             <div>
-              <h3 className="results-title">AI Twist & Evaluation</h3>
+              <h3 className="results-title">Twist & Evaluation</h3>
               <p className="results-subtitle">Narrative Review</p>
             </div>
             {evaluation.isMock && (
@@ -144,22 +146,7 @@ export function ResultScreen({
 
             <SatisfactionGauge score={displayedScore} />
 
-            {displayedSatisfaction && (
-              <div style={{
-                background: 'var(--bg-neo-black)',
-                color: '#fff',
-                padding: '0.85rem 1rem',
-                textAlign: 'center',
-                border: '2px solid var(--bg-neo-black)',
-                boxShadow: '4px 4px 0px rgba(0,0,0,0.15)',
-                fontSize: '0.9rem',
-                fontWeight: '700',
-                lineHeight: '1.4',
-                margin: '1rem 0'
-              }}>
-                "{displayedSatisfaction}"
-              </div>
-            )}
+
           </div>
 
           {/* FOOTER ACTIONS */}

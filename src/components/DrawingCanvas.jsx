@@ -4,11 +4,19 @@ export const DrawingCanvas = forwardRef(({
   brushColor = '#6366f1',
   brushSize = 5,
   isDrawingMode = false,
-  onStrokeAdded = () => {}
+  onStrokeAdded = () => {},
+  initialStrokes = []
 }, ref) => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [strokes, setStrokes] = useState([]); // Array of { points: [{x, y}], color, size }
+  const [strokes, setStrokes] = useState(initialStrokes); // Array of { points: [{x, y}], color, size }
+  
+  // Sync strokes state if initialStrokes updates
+  useEffect(() => {
+    if (initialStrokes) {
+      setStrokes(initialStrokes);
+    }
+  }, [initialStrokes]);
   const currentStrokeRef = useRef(null); // Active drawing stroke
 
   // Allow the parent component to trigger clear and undo operations

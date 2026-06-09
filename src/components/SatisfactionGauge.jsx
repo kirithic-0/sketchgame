@@ -1,11 +1,12 @@
-import React from 'react';
-import { Sparkles, Star, AlertCircle } from 'lucide-react';
+import { Sparkles, Star, AlertCircle, HelpCircle } from 'lucide-react';
 
 export function SatisfactionGauge({ score }) {
   const radius = 64;
   const strokeWidth = 12;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (score / 100) * circumference;
+  
+  const numScore = typeof score === 'number' ? score : 0;
+  const strokeDashoffset = circumference - (numScore / 100) * circumference;
 
   // Determine color and label based on score
   let strokeColor = '#EF4444'; // Red
@@ -13,7 +14,11 @@ export function SatisfactionGauge({ score }) {
   let StatusIcon = AlertCircle;
   let statusColorClass = 'text-red';
 
-  if (score >= 85) {
+  if (score === '?') {
+    strokeColor = '#9CA3AF'; // Gray
+    statusText = 'EVALUATING...';
+    StatusIcon = HelpCircle;
+  } else if (score >= 85) {
     strokeColor = '#D29E3C'; // Gold
     statusText = 'THRILLED!';
     StatusIcon = Sparkles;

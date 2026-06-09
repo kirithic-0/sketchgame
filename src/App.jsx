@@ -57,6 +57,7 @@ function App() {
   const [brushColor, setBrushColor] = useState('#3B5C48');
   const [brushSize, setBrushSize] = useState(8);
   const [isEraser, setIsEraser] = useState(false);
+  const [currentStrokes, setCurrentStrokes] = useState([]);
 
   // Evaluation states
   const [evaluation, setEvaluation] = useState(null);
@@ -93,7 +94,7 @@ function App() {
   const [displayedTwist, setDisplayedTwist] = useState('');
   const [displayedEvaluation, setDisplayedEvaluation] = useState('');
   const [displayedSatisfaction, setDisplayedSatisfaction] = useState('');
-  const [displayedScore, setDisplayedScore] = useState(0);
+  const [displayedScore, setDisplayedScore] = useState('?');
 
   // Fetch Leaderboard from Backend
   const fetchLeaderboard = async () => {
@@ -170,7 +171,7 @@ function App() {
       setDisplayedTwist('');
       setDisplayedEvaluation('');
       setDisplayedSatisfaction('');
-      setDisplayedScore(0);
+      setDisplayedScore('?');
 
       let timer;
       let phase = 'twist'; // 'twist', 'eval', 'satisfied', 'score'
@@ -208,6 +209,7 @@ function App() {
           } else {
             phase = 'score';
             let currentScore = 0;
+            setDisplayedScore(0);
             const scoreStep = () => {
               if (currentScore < targetScore) {
                 currentScore = Math.min(targetScore, currentScore + Math.ceil(targetScore / 20));
@@ -247,7 +249,7 @@ function App() {
       setDifficulty(curLoc.difficulty || 'Medium');
       setRoundStartTime(Date.now());
     } catch (err) {
-      setGameError(`Session Sync Error: ${err.message}. Make sure FastAPI is running!`);
+      setGameError(`Session Sync Error: ${err.message}. Make sure the game server is running!`);
       setStreetImage(null);
     } finally {
       setImgLoading(false);
@@ -265,6 +267,7 @@ function App() {
     setCurrentRound(1);
     setRoundResults([]);
     setStrokesCount(0);
+    setCurrentStrokes([]);
     setRetryCount(0);
     setPersonaResult(null);
     setImgLoading(true);
@@ -295,7 +298,7 @@ function App() {
       setRoundStartTime(Date.now());
       setActiveScreen('game');
     } catch (err) {
-      setGameError(`Failed to start session: ${err.message}. Make sure FastAPI is running!`);
+      setGameError(`Failed to start session: ${err.message}. Make sure the game server is running!`);
     } finally {
       setImgLoading(false);
     }
@@ -306,6 +309,7 @@ function App() {
     if (canvasRef.current) {
       canvasRef.current.clearCanvas();
     }
+    setCurrentStrokes([]);
     setGamePhase('draw');
     setEvaluation(null);
     setScoreSubmitted(false);
@@ -322,6 +326,7 @@ function App() {
     try {
       const canvasElement = canvasRef.current.getCanvasElement();
       const rawStrokes = canvasRef.current?.getStrokes() || [];
+      setCurrentStrokes(rawStrokes);
       if (!canvasElement || !streetImage) return;
 
       // 1. Merge image layer and transparent drawing overlay
@@ -366,7 +371,7 @@ function App() {
       }
     } catch (err) {
       console.error('Error submitting drawing:', err);
-      setGameError(`Backend Error: ${err.message}. Make sure FastAPI is running!`);
+      setGameError(`Backend Error: ${err.message}. Make sure the game server is running!`);
       setGamePhase('draw'); // Return to drawing phase so they don't lose their sketch!
     }
   };
@@ -405,6 +410,7 @@ function App() {
       setEvaluation(null);
       setEvaluationResponse(null);
       setStrokesCount(0);
+      setCurrentStrokes([]);
       
       // Load next pre-generated location and target stats
       const nextLocData = evaluationResponse.next_location;
@@ -540,6 +546,7 @@ function App() {
             onBackToLeaderboard={() => setActiveScreen('landing')}
             strokesCount={strokesCount}
             currentRound={currentRound}
+            initialStrokes={currentStrokes}
           />
         )}
 
@@ -561,8 +568,6 @@ function App() {
       <footer className="footer-bar">
         <span className="footer-copy">© 2026 GeoSketch. Built with React & Supabase.</span>
         <div className="footer-credits">
-          <span>Vision AI: Gemini 2.5 Flash</span>
-          <span>•</span>
           <span>Imagery: Mapillary 2D API</span>
         </div>
       </footer>
