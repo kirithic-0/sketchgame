@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+supabase
+google-generativeai
+python-dotenv
+pydantic
+pydantic-settings
+requests
+httpx
+scikit-learn
+joblib
