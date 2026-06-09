@@ -29,6 +29,38 @@ MOCK_LOCATIONS = [
     'lat': 35.6595,
     'lng': 139.7004,
     'fallbackUrl': 'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=1200&q=80'
+  },
+  {
+    'id': 'paris',
+    'name': 'Eiffel Tower Street, Paris',
+    'country': 'France',
+    'lat': 48.8584,
+    'lng': 2.2945,
+    'fallbackUrl': 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&w=1200&q=80'
+  },
+  {
+    'id': 'new_york',
+    'name': 'Times Square, New York',
+    'country': 'USA',
+    'lat': 40.7580,
+    'lng': -73.9855,
+    'fallbackUrl': 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?auto=format&fit=crop&w=1200&q=80'
+  },
+  {
+    'id': 'london',
+    'name': 'Big Ben Street, London',
+    'country': 'UK',
+    'lat': 51.5007,
+    'lng': -0.1246,
+    'fallbackUrl': 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?auto=format&fit=crop&w=1200&q=80'
+  },
+  {
+    'id': 'rome',
+    'name': 'Colosseum Street, Rome',
+    'country': 'Italy',
+    'lat': 41.8902,
+    'lng': 12.4922,
+    'fallbackUrl': 'https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&w=1200&q=80'
   }
 ]
 
@@ -225,7 +257,12 @@ async def generate_location_data(round_num: int, country: Optional[str] = None) 
 
     if not settings.mapillary_access_token:
         print("Mapillary access token missing, returning mock location.")
-        loc = random.choice(MOCK_LOCATIONS)
+        available_mocks = MOCK_LOCATIONS
+        if country:
+            filtered_mocks = [m for m in MOCK_LOCATIONS if m["country"].lower() == country.lower()]
+            if filtered_mocks:
+                available_mocks = filtered_mocks
+        loc = random.choice(available_mocks)
         objective_info = await generate_objective_for_image(loc["fallbackUrl"], round_num)
         return {
             "location": loc,
