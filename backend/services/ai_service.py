@@ -28,7 +28,7 @@ MOCK_LOCATIONS = [
     'country': 'Japan',
     'lat': 35.6595,
     'lng': 139.7004,
-    'fallbackUrl': 'https://images.unsplash.com/photo-1540959733332-eab4deceeaf7?auto=format&fit=crop&w=1200&q=80'
+    'fallbackUrl': 'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=1200&q=80'
   }
 ]
 
