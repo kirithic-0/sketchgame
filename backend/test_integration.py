@@ -24,104 +24,118 @@ class TestGeoSketchIntegration(unittest.TestCase):
         """Simulate a player with high retention stats in Round 2 to trigger preemptive caching."""
         print("\n--- Running End-to-End Caching Flow Test ---")
         
-        # 1. Round 1: Fetch location
-        response = self.client.get(f"/api/location?round=1&session_id={self.session_id}")
-        self.assertEqual(response.status_code, 200)
-        r1_data = response.json()
-        self.assertTrue(r1_data["isMock"])
-        self.assertIn("objective", r1_data)
-        
-        # 2. Round 1: Evaluate drawing
-        r1_eval_payload = {
-            "imageBase64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-            "locationId": r1_data["location"]["id"],
-            "objective": r1_data["objective"],
-            "session_id": self.session_id,
-            "round_number": 1,
-            "selected_country": "Japan"
-        }
-        response = self.client.post("/api/evaluate", json=r1_eval_payload)
-        self.assertEqual(response.status_code, 200)
-        r1_eval_data = response.json()
-        r1_score = r1_eval_data["score"]
-        print(f"Round 1 Score: {r1_score}")
+        # Mock churn predictor completion probability to 0.90 to guarantee caching trigger
+        from unittest.mock import MagicMock
+        import numpy as np
+        original_predict_proba = CHURN_MODEL.predict_proba
+        CHURN_MODEL.predict_proba = MagicMock(return_value=np.array([[0.1, 0.9]]))
 
-        # 3. Round 2: Fetch location
-        response = self.client.get(f"/api/location?round=2&session_id={self.session_id}")
-        self.assertEqual(response.status_code, 200)
-        r2_data = response.json()
-
-        # 4. Round 2: Evaluate drawing with high retention stats
-        # We pass metrics that correspond to high retention (e.g. custom name, good score, decent strokes/time)
-        r2_eval_payload = {
-            "imageBase64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-            "locationId": r2_data["location"]["id"],
-            "objective": r2_data["objective"],
+        try:
+            # 1. Round 1: Fetch location
+            response = self.client.get(f"/api/location?round=1&session_id={self.session_id}")
+            self.assertEqual(response.status_code, 200)
+            r1_data = response.json()
+            self.assertTrue(r1_data["isMock"])
+            self.assertIn("objective", r1_data)
             
-            # Telemetry parameters designed to satisfy completion_prob > 0.85
-            "session_id": self.session_id,
-            "round_number": 2,
-            "selected_country": "Japan",
-            "r1_score": r1_score,
-            "r1_strokes": 15,
-            "r1_time": 20.0,
-            "r2_strokes": 18,
-            "r2_time": 22.0,
-            "is_custom_name": True
-        }
-        
-        # Execute POST request
-        # Note: TestClient runs background tasks synchronously at the end of the request execution!
-        response = self.client.post("/api/evaluate", json=r2_eval_payload)
-        self.assertEqual(response.status_code, 200)
-        r2_eval_data = response.json()
-        print(f"Round 2 Score: {r2_eval_data['score']}")
-
-        # 5. Check if PREEMPTIVE_CACHE contains data for session and Rounds 3, 4, 5
-        self.assertIn(self.session_id, PREEMPTIVE_CACHE)
-        session_cache = PREEMPTIVE_CACHE[self.session_id]
-        print(f"Preemptive cache keys: {list(session_cache.keys())}")
-        self.assertIn(3, session_cache)
-        self.assertIn(4, session_cache)
-        self.assertIn(5, session_cache)
-
-        # 6. Round 3: Fetch location and verify cache hit
-        response = self.client.get(f"/api/location?round=3&session_id={self.session_id}")
-        self.assertEqual(response.status_code, 200)
-        r3_data = response.json()
-        self.assertIn("objective", r3_data)
-        
-        # Verify that round 3 is popped from the cache
-        self.assertNotIn(3, PREEMPTIVE_CACHE[self.session_id])
-        print("Successfully verified Cache HIT and Cache Pop for Round 3!")
+            # 2. Round 1: Evaluate drawing
+            r1_eval_payload = {
+                "imageBase64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                "locationId": r1_data["location"]["id"],
+                "objective": r1_data["objective"],
+                "session_id": self.session_id,
+                "round_number": 1,
+                "selected_country": "Japan"
+            }
+            response = self.client.post("/api/evaluate", json=r1_eval_payload)
+            self.assertEqual(response.status_code, 200)
+            r1_eval_data = response.json()
+            r1_score = r1_eval_data["score"]
+            print(f"Round 1 Score: {r1_score}")
+    
+            # 3. Round 2: Fetch location
+            response = self.client.get(f"/api/location?round=2&session_id={self.session_id}")
+            self.assertEqual(response.status_code, 200)
+            r2_data = response.json()
+    
+            # 4. Round 2: Evaluate drawing with high retention stats
+            r2_eval_payload = {
+                "imageBase64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                "locationId": r2_data["location"]["id"],
+                "objective": r2_data["objective"],
+                
+                "session_id": self.session_id,
+                "round_number": 2,
+                "selected_country": "Japan",
+                "r1_score": r1_score,
+                "r1_strokes": 15,
+                "r1_time": 20.0,
+                "r2_strokes": 18,
+                "r2_time": 22.0,
+                "is_custom_name": True
+            }
+            
+            response = self.client.post("/api/evaluate", json=r2_eval_payload)
+            self.assertEqual(response.status_code, 200)
+            r2_eval_data = response.json()
+            print(f"Round 2 Score: {r2_eval_data['score']}")
+    
+            # 5. Check if PREEMPTIVE_CACHE contains data for session and Rounds 3, 4, 5
+            self.assertIn(self.session_id, PREEMPTIVE_CACHE)
+            session_cache = PREEMPTIVE_CACHE[self.session_id]
+            print(f"Preemptive cache keys: {list(session_cache.keys())}")
+            self.assertIn(3, session_cache)
+            self.assertIn(4, session_cache)
+            self.assertIn(5, session_cache)
+    
+            # 6. Round 3: Fetch location and verify cache hit
+            response = self.client.get(f"/api/location?round=3&session_id={self.session_id}")
+            self.assertEqual(response.status_code, 200)
+            r3_data = response.json()
+            self.assertIn("objective", r3_data)
+            
+            # Verify that round 3 is popped from the cache
+            self.assertNotIn(3, PREEMPTIVE_CACHE[self.session_id])
+            print("Successfully verified Cache HIT and Cache Pop for Round 3!")
+        finally:
+            CHURN_MODEL.predict_proba = original_predict_proba
 
     def test_churn_under_threshold_no_cache(self):
         """Simulate a player with high churn metrics (low score, default name, etc.) and verify no cache is created."""
         print("\n--- Running Churn Under Threshold Test ---")
         
-        r2_eval_payload = {
-            "imageBase64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-            "locationId": "test_loc",
-            "objective": "test_obj",
+        # Mock churn predictor completion probability to 0.10 to guarantee NO caching trigger
+        from unittest.mock import MagicMock
+        import numpy as np
+        original_predict_proba = CHURN_MODEL.predict_proba
+        CHURN_MODEL.predict_proba = MagicMock(return_value=np.array([[0.9, 0.1]]))
+
+        try:
+            r2_eval_payload = {
+                "imageBase64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                "locationId": "test_loc",
+                "objective": "test_obj",
+                
+                # Telemetry parameters designed to fail completion_prob > 0.85
+                "session_id": "churner_session_123",
+                "round_number": 2,
+                "selected_country": "Japan",
+                "r1_score": 98,
+                "r1_strokes": 30,
+                "r1_time": 45.0,
+                "r2_strokes": 2,   # extremely low strokes
+                "r2_time": 3.0,    # extremely low time
+                "is_custom_name": False
+            }
             
-            # Telemetry parameters designed to fail completion_prob > 0.85
-            "session_id": "churner_session_123",
-            "round_number": 2,
-            "selected_country": "Japan",
-            "r1_score": 98,
-            "r1_strokes": 30,
-            "r1_time": 45.0,
-            "r2_strokes": 2,   # extremely low strokes
-            "r2_time": 3.0,    # extremely low time
-            "is_custom_name": False
-        }
-        
-        response = self.client.post("/api/evaluate", json=r2_eval_payload)
-        self.assertEqual(response.status_code, 200)
-        
-        # Cache should NOT be created for this session
-        self.assertNotIn("churner_session_123", PREEMPTIVE_CACHE)
-        print("Verified that no cache was triggered for high-churn player.")
+            response = self.client.post("/api/evaluate", json=r2_eval_payload)
+            self.assertEqual(response.status_code, 200)
+            
+            # Cache should NOT be created for this session
+            self.assertNotIn("churner_session_123", PREEMPTIVE_CACHE)
+            print("Verified that no cache was triggered for high-churn player.")
+        finally:
+            CHURN_MODEL.predict_proba = original_predict_proba
 
     def test_effort_regressor_evaluation(self):
         """Verify that SVR effort scorer modifies the evaluation score (penalties vs bonus)."""

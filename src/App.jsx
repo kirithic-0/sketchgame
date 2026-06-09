@@ -1,20 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { 
-  Trophy, 
-  Play, 
-  Undo, 
-  Trash2, 
-  Sparkles, 
-  RefreshCw, 
-  X, 
-  CheckCircle, 
-  MapPin, 
-  Paintbrush,
-  Palette,
-  Check,
-  ChevronRight,
-  AlertTriangle
-} from 'lucide-react';
+
 import { mergeLayers } from './utils/imageExporter';
 import { extractStrokeFeatures } from './utils/strokeFeatures';
 import confetti from 'canvas-confetti';
@@ -76,8 +61,7 @@ function App() {
   // Evaluation states
   const [evaluation, setEvaluation] = useState(null);
   const [evaluationResponse, setEvaluationResponse] = useState(null);
-  const [scoreSubmitted, setScoreSubmitted] = useState(false);
-  const [submittingScore, setSubmittingScore] = useState(false);
+
 
   // Username and Multi-round states
   const [username, setUsernameState] = useState(() => localStorage.getItem('geosketch_username') || '');
@@ -277,7 +261,7 @@ function App() {
     setGamePhase('draw');
     setEvaluation(null);
     setEvaluationResponse(null);
-    setScoreSubmitted(false);
+
     setCurrentRound(1);
     setRoundResults([]);
     setStrokesCount(0);
@@ -482,7 +466,7 @@ function App() {
       
       setEvaluation(null);
       setEvaluationResponse(null);
-      setScoreSubmitted(true); // Pre-marked as saved!
+
       setActiveScreen('summary');
     }
   };
