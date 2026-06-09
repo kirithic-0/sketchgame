@@ -330,7 +330,25 @@ async def generate_location_data(round_num: int, country: Optional[str] = None) 
                 searchLng = round(lng + math.cos(angle) * factor, 5)
 
             print(f"No street imagery found near {city['name']} on attempt {loc_attempt + 1}.")
-    raise HTTPException(status_code=404, detail="Total street view imagery coverage search failure after 5 locations.")
+    
+    print("Total street view imagery coverage search failure after 5 locations. Falling back to mock location.")
+    available_mocks = MOCK_LOCATIONS
+    if country:
+        filtered_mocks = [m for m in MOCK_LOCATIONS if m["country"].lower() == country.lower()]
+        if filtered_mocks:
+            available_mocks = filtered_mocks
+    loc = random.choice(available_mocks)
+    objective_info = await generate_objective_for_image(loc["fallbackUrl"], round_num)
+    return {
+        "location": loc,
+        "imageUrl": loc["fallbackUrl"],
+        "imageId": f"fallback_{loc['id']}",
+        "objective": objective_info.get("objective", "Draw something cool!"),
+        "difficulty": objective_info.get("difficulty", "Medium"),
+        "vqa_question": objective_info.get("vqa_question", "Is the drawing creative?"),
+        "target_state": objective_info.get("target_state", "the drawing is creative"),
+        "isMock": True
+    }
 
 async def prefetch_future_rounds(session_id: str, selected_country: str):
     print(f"Background task: starting prefetch for session {session_id} in {selected_country or 'any country'}...")
