@@ -52,6 +52,7 @@ function App() {
   const [retryCount, setRetryCount] = useState(0);
   const [personaResult, setPersonaResult] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [gameStarting, setGameStarting] = useState(false);
 
   // Drawing Brush configurations
   const [brushColor, setBrushColor] = useState('#3B5C48');
@@ -258,6 +259,7 @@ function App() {
 
   // Initialize a new round/session
   const startNewGame = async () => {
+    setGameStarting(true);
     setLocation(null);
     setStreetImage(null);
     setGamePhase('draw');
@@ -301,6 +303,7 @@ function App() {
       setGameError(`Failed to start session: ${err.message}. Make sure the game server is running!`);
     } finally {
       setImgLoading(false);
+      setGameStarting(false);
     }
   };
 
@@ -506,6 +509,7 @@ function App() {
             onRefreshLeaderboard={fetchLeaderboard}
             selectedCountry={selectedCountry}
             setSelectedCountry={setSelectedCountry}
+            gameStarting={gameStarting}
           />
         )}
 

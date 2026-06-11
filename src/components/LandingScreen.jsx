@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Sparkles, ChevronRight, Trophy, History } from 'lucide-react';
+import { Play, Sparkles, ChevronRight, Trophy, History, RefreshCw } from 'lucide-react';
 import { Leaderboard } from './Leaderboard';
 
 export function LandingScreen({
@@ -11,7 +11,8 @@ export function LandingScreen({
   dbLoading,
   onRefreshLeaderboard,
   selectedCountry,
-  setSelectedCountry
+  setSelectedCountry,
+  gameStarting = false
 }) {
   const [activeTab, setActiveTab] = useState('global'); // global, local
 
@@ -183,13 +184,22 @@ export function LandingScreen({
 
         <button 
           onClick={onStartGame} 
-          disabled={!username.trim()} 
+          disabled={!username.trim() || gameStarting} 
           className="btn-primary start-btn"
           style={{ width: '100%', maxWidth: 'none' }}
         >
-          <Play className="btn-icon fill-black" strokeWidth={3} />
-          <span>Start 5-Round Match ({selectedCountry})</span>
-          <ChevronRight className="btn-arrow" strokeWidth={3} />
+          {gameStarting ? (
+            <>
+              <RefreshCw className="btn-icon animate-spin" strokeWidth={3} />
+              <span>Loading Location...</span>
+            </>
+          ) : (
+            <>
+              <Play className="btn-icon fill-black" strokeWidth={3} />
+              <span>Start 5-Round Match ({selectedCountry})</span>
+              <ChevronRight className="btn-arrow" strokeWidth={3} />
+            </>
+          )}
         </button>
       </div>
 

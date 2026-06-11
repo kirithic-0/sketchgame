@@ -1,22 +1,24 @@
 import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 
+const DEFAULT_STROKES = [];
+
 export const DrawingCanvas = forwardRef(({
   brushColor = '#6366f1',
   brushSize = 5,
   isDrawingMode = false,
   onStrokeAdded = () => {},
-  initialStrokes = []
+  initialStrokes = DEFAULT_STROKES
 }, ref) => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [strokes, setStrokes] = useState(initialStrokes); // Array of { points: [{x, y}], color, size }
   
-  // Sync strokes state if initialStrokes updates
+  // Sync strokes state if initialStrokes updates (only in read-only mode to prevent draw-time resets)
   useEffect(() => {
-    if (initialStrokes) {
+    if (!isDrawingMode && initialStrokes) {
       setStrokes(initialStrokes);
     }
-  }, [initialStrokes]);
+  }, [initialStrokes, isDrawingMode]);
   const currentStrokeRef = useRef(null); // Active drawing stroke
 
   // Allow the parent component to trigger clear and undo operations
