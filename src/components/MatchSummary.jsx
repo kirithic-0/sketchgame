@@ -10,7 +10,7 @@ export function MatchSummary({
   summaryLoading = false
 }) {
   return (
-    <div className="landing-layout" style={{ maxWidth: '850px', margin: '0 auto' }}>
+    <div className="landing-layout" style={{ width: '100%' }}>
       {/* FINAL SCORE HERO */}
       <div className="hero-block" style={{ padding: '2.5rem', textAlign: 'center' }}>
         <div className="badge">
