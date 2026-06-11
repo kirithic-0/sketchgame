@@ -10,7 +10,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { DrawingCanvas } from './DrawingCanvas';
-import { StatsChart } from './StatsChart';
+
 
 const BRUSH_COLORS = [
   { name: 'Slate Green', hex: '#3B5C48' },
