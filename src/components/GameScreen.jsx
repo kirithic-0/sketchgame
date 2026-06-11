@@ -13,13 +13,14 @@ import { DrawingCanvas } from './DrawingCanvas';
 
 
 const BRUSH_COLORS = [
-  { name: 'Slate Green', hex: '#3B5C48' },
-  { name: 'Warm Terracotta', hex: '#C27866' },
-  { name: 'Mustard Gold', hex: '#D29E3C' },
-  { name: 'Charcoal Green', hex: '#203326' },
-  { name: 'Sage Green', hex: '#4C8A69' },
-  { name: 'Warm Peach', hex: '#D8A28C' },
-  { name: 'Crimson Rust', hex: '#AF4E4E' }
+  { name: 'Black', hex: '#000000' },
+  { name: 'Red', hex: '#EF4444' },
+  { name: 'Blue', hex: '#3B82F6' },
+  { name: 'Green', hex: '#22C55E' },
+  { name: 'Yellow', hex: '#F59E0B' },
+  { name: 'Orange', hex: '#F97316' },
+  { name: 'Purple', hex: '#8B5CF6' },
+  { name: 'White', hex: '#FFFFFF' }
 ];
 
 export function GameScreen({
@@ -37,7 +38,7 @@ export function GameScreen({
   currentRound = 1,
   onClearCanvas
 }) {
-  const [brushColor, setBrushColor] = useState('#3B5C48');
+  const [brushColor, setBrushColor] = useState('#000000');
   const [brushSize, setBrushSize] = useState(8);
   const [isEraser, setIsEraser] = useState(false);
 

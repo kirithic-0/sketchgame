@@ -15,18 +15,19 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 
 // Color Palette presets for drawing
 const BRUSH_COLORS = [
-  { name: 'Slate Green', hex: '#3B5C48' },
-  { name: 'Warm Terracotta', hex: '#C27866' },
-  { name: 'Mustard Gold', hex: '#D29E3C' },
-  { name: 'Charcoal Green', hex: '#203326' },
-  { name: 'Sage Green', hex: '#4C8A69' },
-  { name: 'Warm Peach', hex: '#D8A28C' },
-  { name: 'Crimson Rust', hex: '#AF4E4E' }
+  { name: 'Black', hex: '#000000' },
+  { name: 'Red', hex: '#EF4444' },
+  { name: 'Blue', hex: '#3B82F6' },
+  { name: 'Green', hex: '#22C55E' },
+  { name: 'Yellow', hex: '#F59E0B' },
+  { name: 'Orange', hex: '#F97316' },
+  { name: 'Purple', hex: '#8B5CF6' },
+  { name: 'White', hex: '#FFFFFF' }
 ];
 
 function App() {
   const canvasRef = useRef(null);
-  
+
   // App States
   const [activeScreen, setActiveScreen] = useState('landing'); // landing, game, summary
   const [leaderboard, setLeaderboard] = useState([]);
@@ -55,7 +56,7 @@ function App() {
   const [gameStarting, setGameStarting] = useState(false);
 
   // Drawing Brush configurations
-  const [brushColor, setBrushColor] = useState('#3B5C48');
+  const [brushColor, setBrushColor] = useState('#000000');
   const [brushSize, setBrushSize] = useState(8);
   const [isEraser, setIsEraser] = useState(false);
   const [currentStrokes, setCurrentStrokes] = useState([]);
@@ -81,7 +82,7 @@ function App() {
   const setUsername = (name) => {
     setUsernameState(name);
     localStorage.setItem('geosketch_username', name);
-    
+
     // Invalidate active session if username changes
     const activeSessionId = localStorage.getItem('geosketch_current_session_id');
     if (activeSessionId) {
@@ -130,13 +131,13 @@ function App() {
             throw new Error('Session status invalid or completed.');
           }
           const data = await response.json();
-          
+
           // Restore all state
           setSessionId(data.session_id);
           setUsernameState(data.player_name);
           setCurrentRound(data.current_round);
           setRoundResults(data.round_results);
-          
+
           const curLoc = data.current_location;
           setLocation(curLoc.location);
           setStreetImage(curLoc);
@@ -144,12 +145,12 @@ function App() {
           setVqaQuestion(curLoc.vqa_question || 'Is the drawing creative?');
           setTargetState(curLoc.target_state || 'the drawing is creative');
           setDifficulty(curLoc.difficulty || 'Medium');
-          
+
           setGamePhase('draw');
           setStrokesCount(0);
           setRoundStartTime(Date.now());
           setActiveScreen('game');
-          
+
           console.log(`[App] SUCCESS - Restored session ${activeSessionId} on round ${data.current_round}`);
         } catch (err) {
           console.warn(`[App] Failed to restore active session: ${err.message}. Clearing session ID.`);
@@ -157,7 +158,7 @@ function App() {
         }
       }
     };
-    
+
     restoreSession();
   }, []);
 
@@ -177,7 +178,7 @@ function App() {
       let timer;
       let phase = 'twist'; // 'twist', 'eval', 'satisfied', 'score'
       let charIndex = 0;
-      
+
       const animateText = () => {
         if (phase === 'twist') {
           if (charIndex < fullTwist.length) {
@@ -240,7 +241,7 @@ function App() {
       const response = await fetch(`${API_BASE_URL}/session/status?session_id=${sessId}&player_name=${currentUsername}`);
       if (!response.ok) throw new Error('Failed to fetch session status');
       const data = await response.json();
-      
+
       const curLoc = data.current_location;
       setLocation(curLoc.location);
       setStreetImage(curLoc);
@@ -274,7 +275,7 @@ function App() {
     setPersonaResult(null);
     setImgLoading(true);
     setGameError(null);
-    
+
     try {
       const response = await fetch(`${API_BASE_URL}/session/start`, {
         method: 'POST',
@@ -286,10 +287,10 @@ function App() {
       });
       if (!response.ok) throw new Error('Failed to start session');
       const data = await response.json();
-      
+
       setSessionId(data.session_id);
       localStorage.setItem('geosketch_current_session_id', data.session_id);
-      
+
       const curLoc = data.current_location;
       setLocation(curLoc.location);
       setStreetImage(curLoc);
@@ -322,10 +323,10 @@ function App() {
   // Submit sketch to AI
   const handleSubmitDrawing = async () => {
     if (strokesCount === 0) return;
-    
+
     setGamePhase('scanning');
     setGameError(null);
-    
+
     try {
       const canvasElement = canvasRef.current.getCanvasElement();
       const rawStrokes = canvasRef.current?.getStrokes() || [];
@@ -360,7 +361,7 @@ function App() {
       });
       if (!response.ok) throw new Error('Evaluation request failed');
       const data = await response.json();
-      
+
       setEvaluationResponse(data);
       setEvaluation(data.evaluation);
       setGamePhase('result');
@@ -399,7 +400,7 @@ function App() {
       time: currentRoundTime,
       effortScore: evaluation.effort_score || 5.0
     };
-    
+
     const updatedResults = [...roundResults, newResult];
     setRoundResults(updatedResults);
 
@@ -414,7 +415,7 @@ function App() {
       setEvaluationResponse(null);
       setStrokesCount(0);
       setCurrentStrokes([]);
-      
+
       // Load next pre-generated location and target stats
       const nextLocData = evaluationResponse.next_location;
       setLocation(nextLocData.location);
@@ -427,7 +428,7 @@ function App() {
     } else {
       // Completed! Score is already auto-saved in backend.
       localStorage.removeItem('geosketch_current_session_id');
-      
+
       // Calculate averages for Playstyle Persona Clustering (Model 2)
       const total = updatedResults.reduce((sum, r) => sum + r.score, 0);
       const avgTime = updatedResults.reduce((sum, r) => sum + r.time, 0) / 5;
@@ -446,19 +447,19 @@ function App() {
           average_score: avgScore
         })
       })
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch game summary');
-        return res.json();
-      })
-      .then(data => {
-        setPersonaResult(data);
-      })
-      .catch(err => {
-        console.error("Failed to load playstyle persona:", err);
-      })
-      .finally(() => {
-        setSummaryLoading(false);
-      });
+        .then(res => {
+          if (!res.ok) throw new Error('Failed to fetch game summary');
+          return res.json();
+        })
+        .then(data => {
+          setPersonaResult(data);
+        })
+        .catch(err => {
+          console.error("Failed to load playstyle persona:", err);
+        })
+        .finally(() => {
+          setSummaryLoading(false);
+        });
 
       // Save to local history
       const newRun = {
@@ -472,7 +473,7 @@ function App() {
         localStorage.setItem('geosketch_runs', JSON.stringify(updated));
         return updated;
       });
-      
+
       setEvaluation(null);
       setEvaluationResponse(null);
 
@@ -496,7 +497,7 @@ function App() {
 
       {/* MAIN CONTENT AREA */}
       <main className="main-content">
-        
+
         {/* SCREEN 1: LANDING SCREEN */}
         {activeScreen === 'landing' && (
           <LandingScreen
