@@ -11,10 +11,16 @@ if parent_dir not in sys.path:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from backend.core.logger import setup_logging
+
+# Initialize structured logging first
+setup_logging()
+
 from backend.routers.sessions import router as sessions_router
 from backend.routers.leaderboard import router as leaderboard_router
 
 app = FastAPI(title="GeoSketch API")
+
 
 # Configure CORS for frontend
 app.add_middleware(

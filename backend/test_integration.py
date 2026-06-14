@@ -5,8 +5,10 @@ from fastapi.testclient import TestClient
 
 # Set up environment variables before importing main to avoid initialization issues
 os.environ["MAPILLARY_ACCESS_TOKEN"] = ""  # Force mock locations for deterministic testing
+os.environ["VITE_MAPILLARY_ACCESS_TOKEN"] = ""
 
 from backend.main import app
+
 from backend.core.state import PREEMPTIVE_CACHE
 from backend.services.ml_service import CHURN_MODEL
 

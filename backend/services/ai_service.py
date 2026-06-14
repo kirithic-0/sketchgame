@@ -6,6 +6,7 @@ import base64
 from typing import Optional, Dict, Any
 from fastapi import HTTPException
 import google.generativeai as genai
+from loguru import logger
 from backend.core.config import settings
 from backend.core.state import PREEMPTIVE_CACHE
 
@@ -170,16 +171,17 @@ async def generate_content_with_fallback(prompt: str, image_bytes: bytes, mime_t
         
     for name, api_func in api_attempts:
         try:
-            print(f"Attempting content generation using {name}...")
+            logger.info("Attempting content generation using {}...", name)
             result_text = await api_func(prompt, image_bytes, mime_type)
-            print(f"Success with {name}!")
+            logger.info("Success with {}!", name)
             return result_text
         except Exception as e:
             err_msg = f"{name} failed: {e}"
-            print(err_msg)
+            logger.warning(err_msg)
             errors.append(err_msg)
             
     raise Exception(f"All vision APIs failed: {'; '.join(errors)}")
+
 
 async def generate_objective_for_image(image_url: str, round_num: int) -> Dict[str, Any]:
     if not settings.gemini_api_key and not settings.groq_api_key:
@@ -192,10 +194,10 @@ async def generate_objective_for_image(image_url: str, round_num: int) -> Dict[s
             if response.status_code == 200:
                 image_bytes = response.content
             else:
-                print(f"Failed to download image from {image_url}: {response.status_code}")
+                logger.warning("Failed to download image from {}: {}", image_url, response.status_code)
                 return get_fallback_objective(round_num)
         except Exception as e:
-            print(f"Error downloading image for objective generation: {e}")
+            logger.error("Error downloading image for objective generation: {}", e)
             return get_fallback_objective(round_num)
 
     try:
@@ -244,7 +246,7 @@ async def generate_objective_for_image(image_url: str, round_num: int) -> Dict[s
             
         return json.loads(result_text)
     except Exception as e:
-        print(f"Error generating objective: {e}")
+        logger.error("Error generating objective: {}", e)
         return get_fallback_objective(round_num)
 
 async def generate_location_data(round_num: int, country: Optional[str] = None) -> Dict[str, Any]:
@@ -253,10 +255,10 @@ async def generate_location_data(round_num: int, country: Optional[str] = None) 
         filtered = [c for c in CITIES if c["country"].lower() == country.lower()]
         if filtered:
             available_cities = filtered
-            print(f"Filtering search to: {country}")
+            logger.info("Filtering search to: {}", country)
 
     if not settings.mapillary_access_token:
-        print("Mapillary access token missing, returning mock location.")
+        logger.info("Mapillary access token missing, returning mock location.")
         available_mocks = MOCK_LOCATIONS
         if country:
             filtered_mocks = [m for m in MOCK_LOCATIONS if m["country"].lower() == country.lower()]
@@ -292,7 +294,7 @@ async def generate_location_data(round_num: int, country: Optional[str] = None) 
                 "lng": lng
             }
             
-            print(f"Location Attempt {loc_attempt + 1}/5: Searching near {city['name']} ({lat}, {lng})")
+            logger.info("Location Attempt {}/5: Searching near {} ({}, {})", loc_attempt + 1, city['name'], lat, lng)
             
             searchLat = lat
             searchLng = lng
@@ -306,7 +308,7 @@ async def generate_location_data(round_num: int, country: Optional[str] = None) 
                         if data.get("data") and len(data["data"]) > 0:
                             valid_image = next((img for img in data["data"] if img.get("thumb_1024_url") or img.get("thumb_2048_url")), None)
                             if valid_image:
-                                print(f"Successfully found street view image on attempt {attempt + 1} at ({searchLat}, {searchLng})")
+                                logger.info("Successfully found street view image on attempt {} at ({}, {})", attempt + 1, searchLat, searchLng)
                                 image_url = valid_image.get("thumb_1024_url", valid_image.get("thumb_2048_url"))
                                 objective_info = await generate_objective_for_image(image_url, round_num)
                                 return {
@@ -320,18 +322,18 @@ async def generate_location_data(round_num: int, country: Optional[str] = None) 
                                     "isMock": False
                                 }
                     else:
-                         print(f"Mapillary API warning: Status code {response.status_code} - {response.text}")
+                         logger.warning("Mapillary API warning: Status code {} - {}", response.status_code, response.text)
                 except Exception as e:
-                    print(f"Mapillary API request exception: {e}")
+                    logger.error("Mapillary API request exception: {}", e)
                 
                 factor = math.pow(attempt + 1, 1.8) * 0.0015
                 angle = random.random() * math.pi * 2
                 searchLat = round(lat + math.sin(angle) * factor, 5)
                 searchLng = round(lng + math.cos(angle) * factor, 5)
 
-            print(f"No street imagery found near {city['name']} on attempt {loc_attempt + 1}.")
+            logger.warning("No street imagery found near {} on attempt {}.", city['name'], loc_attempt + 1)
     
-    print("Total street view imagery coverage search failure after 5 locations. Falling back to mock location.")
+    logger.warning("Total street view imagery coverage search failure after 5 locations. Falling back to mock location.")
     available_mocks = MOCK_LOCATIONS
     if country:
         filtered_mocks = [m for m in MOCK_LOCATIONS if m["country"].lower() == country.lower()]
@@ -351,16 +353,17 @@ async def generate_location_data(round_num: int, country: Optional[str] = None) 
     }
 
 async def prefetch_future_rounds(session_id: str, selected_country: str):
-    print(f"Background task: starting prefetch for session {session_id} in {selected_country or 'any country'}...")
+    logger.info("Background task: starting prefetch for session {} in {}...", session_id, selected_country or 'any country')
     session_rounds = {}
     for round_num in [3, 4, 5]:
         try:
             round_data = await generate_location_data(round_num, selected_country)
             session_rounds[round_num] = round_data
-            print(f"Background task: pre-cached Round {round_num} for session {session_id}")
+            logger.info("Background task: pre-cached Round {} for session {}", round_num, session_id)
         except Exception as e:
-            print(f"Background task: failed to pre-cache Round {round_num} for session {session_id}: {e}")
+            logger.error("Background task: failed to pre-cache Round {} for session {}: {}", round_num, session_id, e)
     
     if session_rounds:
         PREEMPTIVE_CACHE[session_id] = session_rounds
-        print(f"Background task: finished pre-caching rounds {list(session_rounds.keys())} for session {session_id}")
+        logger.info("Background task: finished pre-caching rounds {} for session {}", list(session_rounds.keys()), session_id)
+

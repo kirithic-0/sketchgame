@@ -2,6 +2,8 @@ import os
 import joblib
 from typing import Optional
 
+from loguru import logger
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Load churn model
@@ -25,9 +27,10 @@ SCORE_REGRESSOR = joblib.load(SCORE_REGRESSOR_PATH) if os.path.exists(SCORE_REGR
 
 # Helper to classify playstyle persona
 def predict_playstyle_persona(avg_time: float, avg_strokes: float, retries: int, avg_score: float) -> str:
-    print(f"[PERSONA CLASSIFIER] Classifying style for Time: {avg_time:.2f}s, Strokes: {avg_strokes:.2f}, Retries: {retries}, Score: {avg_score:.2f}...")
+    logger.info("Classifying style for Time: {:.2f}s, Strokes: {:.2f}, Retries: {}, Score: {:.2f}...", 
+                avg_time, avg_strokes, retries, avg_score)
     if not PERSONA_SCALER or not PERSONA_MODEL:
-        print("[PERSONA CLASSIFIER] Models not loaded. Defaulting to 'Neutral'.")
+        logger.warning("Persona classifier models not loaded. Defaulting to 'Neutral'.")
         return "Neutral"
     try:
         features = [[avg_time, avg_strokes, float(retries), avg_score]]
@@ -48,8 +51,9 @@ def predict_playstyle_persona(avg_time: float, avg_strokes: float, retries: int,
         else:
             persona = "The Chaos Agent"
             
-        print(f"[PERSONA CLASSIFIER] Classified as '{persona}' (Cluster: {cluster})")
+        logger.info("Classified as '{}' (Cluster ID: {})", persona, cluster)
         return persona
     except Exception as e:
-        print(f"[PERSONA CLASSIFIER] ERROR running model: {e}. Defaulting to 'Neutral'.")
+        logger.exception("Error running persona model. Defaulting to 'Neutral'.")
         return "Neutral"
+

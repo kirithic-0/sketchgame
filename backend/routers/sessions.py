@@ -8,6 +8,7 @@ import joblib
 from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 import google.generativeai as genai
+from loguru import logger
 
 from backend.core.config import settings
 from backend.core.database import supabase
@@ -36,75 +37,74 @@ router = APIRouter(prefix="/api")
 
 # Helper to get session from database or mock cache
 def get_session_by_id(session_id: str) -> Optional[Dict[str, Any]]:
-    print(f"[SESSION DB QUERY] Retrieving session {session_id}...")
+    logger.debug("Retrieving session {}...", session_id)
     if supabase:
         try:
             response = supabase.table("geosketch_sessions").select("*").eq("id", session_id).execute()
             if response.data and len(response.data) > 0:
-                print(f"[SESSION DB QUERY] SUCCESS - Found session {session_id} in database.")
+                logger.info("Found session {} in database.", session_id)
                 return response.data[0]
-            print(f"[SESSION DB QUERY] NOT FOUND - Session {session_id} not in database.")
+            logger.warning("Session {} not found in database.", session_id)
             return None
         except Exception as e:
-            print(f"[SESSION DB QUERY] ERROR querying Supabase: {e}")
+            logger.exception("Error querying Supabase for session ID: {}", session_id)
             return None
     else:
         session = MOCK_SESSIONS.get(session_id)
         if session:
-            print(f"[SESSION DB QUERY] SUCCESS - Found session {session_id} in mock cache.")
+            logger.info("Found session {} in mock cache.", session_id)
         else:
-            print(f"[SESSION DB QUERY] NOT FOUND - Session {session_id} not in mock cache.")
+            logger.warning("Session {} not found in mock cache.", session_id)
         return session
 
 # Helper to save new session
 def save_new_session(session_data: Dict[str, Any]) -> Dict[str, Any]:
-    print(f"[SESSION DB INSERT] Creating new session for player '{session_data['player_name']}'...")
+    logger.info("Creating new session for player '{}'...", session_data['player_name'])
     if supabase:
         try:
             response = supabase.table("geosketch_sessions").insert([session_data]).execute()
             if response.data and len(response.data) > 0:
                 inserted = response.data[0]
-                print(f"[SESSION DB INSERT] SUCCESS - Created session {inserted['id']} in database.")
+                logger.info("Created session {} in database.", inserted['id'])
                 return inserted
             raise Exception("No data returned from insert operation.")
         except Exception as e:
-            print(f"[SESSION DB INSERT] ERROR inserting to Supabase: {e}")
+            logger.exception("Error inserting new session to Supabase")
             raise HTTPException(status_code=500, detail=f"Database insert failed: {e}")
     else:
         session_id = str(uuid.uuid4())
         session_data["id"] = session_id
         MOCK_SESSIONS[session_id] = session_data
-        print(f"[SESSION DB INSERT] SUCCESS - Created session {session_id} in mock cache.")
+        logger.info("Created session {} in mock cache.", session_id)
         return session_data
 
 # Helper to update session
 def update_session_by_id(session_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    print(f"[SESSION DB UPDATE] Updating session {session_id} with data keys: {list(update_data.keys())}...")
+    logger.debug("Updating session {} with data keys: {}", session_id, list(update_data.keys()))
     if supabase:
         try:
             response = supabase.table("geosketch_sessions").update(update_data).eq("id", session_id).execute()
             if response.data and len(response.data) > 0:
-                print(f"[SESSION DB UPDATE] SUCCESS - Updated session {session_id} in database.")
+                logger.info("Updated session {} in database.", session_id)
                 return response.data[0]
-            print(f"[SESSION DB UPDATE] WARNING - Update succeeded but session {session_id} not found.")
+            logger.warning("Update succeeded but session {} not found in database.", session_id)
             return None
         except Exception as e:
-            print(f"[SESSION DB UPDATE] ERROR updating Supabase: {e}")
+            logger.exception("Error updating Supabase session ID: {}", session_id)
             raise HTTPException(status_code=500, detail=f"Database update failed: {e}")
     else:
         if session_id in MOCK_SESSIONS:
             MOCK_SESSIONS[session_id].update(update_data)
-            print(f"[SESSION DB UPDATE] SUCCESS - Updated session {session_id} in mock cache.")
+            logger.info("Updated session {} in mock cache.", session_id)
             return MOCK_SESSIONS[session_id]
-        print(f"[SESSION DB UPDATE] NOT FOUND - Session {session_id} not in mock cache.")
+        logger.warning("Session {} not found in mock cache to update.", session_id)
         return None
+
 
 # Endpoints for Session API
 @router.post("/session/start")
 async def start_session(req: SessionStartRequest, background_tasks: BackgroundTasks):
-    print(f"\n=== [ENDPOINT: START SESSION] ===")
-    print(f"Player Name: {req.player_name}")
-    print(f"Country Filter: {req.selected_country}")
+    logger.info("ENDPOINT: START SESSION - Player: {}, Country: {}", req.player_name, req.selected_country)
     
     first_location = await generate_location_data(1, req.selected_country)
     
@@ -119,9 +119,7 @@ async def start_session(req: SessionStartRequest, background_tasks: BackgroundTa
     session = save_new_session(session_data)
     session_id = session["id"]
     
-    print(f"Generated Session ID: {session_id}")
-    print(f"Round 1 Location: {first_location['location']['name']}")
-    print(f"=================================\n")
+    logger.info("Generated Session ID: {} | Round 1 Location: {}", session_id, first_location['location']['name'])
     
     return {
         "session_id": session_id,
@@ -131,29 +129,24 @@ async def start_session(req: SessionStartRequest, background_tasks: BackgroundTa
 
 @router.get("/session/status")
 async def get_session_status(session_id: str = Query(...), player_name: Optional[str] = None):
-    print(f"\n=== [ENDPOINT: GET SESSION STATUS] ===")
-    print(f"Session ID: {session_id}")
-    print(f"Requested Player Name: {player_name}")
+    logger.info("ENDPOINT: GET SESSION STATUS - Session ID: {}, Player: {}", session_id, player_name)
     
     session = get_session_by_id(session_id)
     if not session:
-        print(f"Status: SESSION NOT FOUND")
-        print(f"=====================================\n")
+        logger.warning("Session status check: SESSION NOT FOUND for ID {}", session_id)
         raise HTTPException(status_code=404, detail="Session not found.")
         
     if session.get("status") == "completed":
-        print(f"Status: SESSION ALREADY COMPLETED")
-        print(f"=====================================\n")
+        logger.warning("Session status check: SESSION ALREADY COMPLETED for ID {}", session_id)
         raise HTTPException(status_code=404, detail="Session is already completed.")
         
     if player_name and session.get("player_name") != player_name:
-        print(f"Status: USERNAME MISMATCH (Expected '{session.get('player_name')}', Got '{player_name}'). Invalidating session.")
+        logger.warning("Session status check: USERNAME MISMATCH (Expected '{}', Got '{}'). Invalidating session ID {}", 
+                       session.get('player_name'), player_name, session_id)
         update_session_by_id(session_id, {"status": "completed"})
-        print(f"=====================================\n")
         raise HTTPException(status_code=404, detail="Session username mismatch. Session invalidated.")
         
-    print(f"Status: ACTIVE | Player: {session.get('player_name')} | Round: {session.get('current_round')}")
-    print(f"======================================\n")
+    logger.info("Session status check: ACTIVE | Player: {} | Round: {}", session.get('player_name'), session.get('current_round'))
     
     return {
         "session_id": session["id"],
@@ -165,18 +158,15 @@ async def get_session_status(session_id: str = Query(...), player_name: Optional
 
 @router.post("/session/evaluate")
 async def evaluate_session_drawing(req: SessionEvaluateRequest, background_tasks: BackgroundTasks):
-    print(f"\n=== [ENDPOINT: EVALUATE SESSION DRAWING] ===")
-    print(f"Session ID: {req.session_id}")
+    logger.info("ENDPOINT: EVALUATE SESSION DRAWING - Session ID: {}", req.session_id)
     
     session = get_session_by_id(req.session_id)
     if not session:
-        print(f"Error: Session not found.")
-        print(f"==========================================\n")
+        logger.warning("Evaluation failed: Session not found for ID {}", req.session_id)
         raise HTTPException(status_code=404, detail="Session not found.")
         
     if session.get("status") == "completed":
-        print(f"Error: Session is already completed.")
-        print(f"==========================================\n")
+        logger.warning("Evaluation failed: Session already completed for ID {}", req.session_id)
         raise HTTPException(status_code=404, detail="Session already completed.")
         
     current_round = session["current_round"]
@@ -184,9 +174,7 @@ async def evaluate_session_drawing(req: SessionEvaluateRequest, background_tasks
     current_location = session["current_location"]
     round_results = session["round_results"]
     
-    print(f"Player: {player_name} | Round: {current_round}/5")
-    print(f"Active Objective: {current_location.get('objective')}")
-    print(f"Target Outcome State: {current_location.get('target_state')}")
+    logger.info("Evaluating Player: '{}' | Round: {}/5 | Objective: '{}'", player_name, current_round, current_location.get('objective'))
     
     evaluation_req = EvaluationRequest(
         imageBase64=req.imageBase64,
@@ -238,13 +226,13 @@ async def evaluate_session_drawing(req: SessionEvaluateRequest, background_tasks
         if req.session_id in PREEMPTIVE_CACHE:
             session_rounds = PREEMPTIVE_CACHE[req.session_id]
             if next_round in session_rounds:
-                print(f"[SESSION] Cache HIT for session {req.session_id}, round {next_round}!")
+                logger.info("Cache HIT for session {}, round {}", req.session_id, next_round)
                 next_location = session_rounds.pop(next_round)
                 if not session_rounds:
                     PREEMPTIVE_CACHE.pop(req.session_id, None)
                     
         if not next_location:
-            print(f"[SESSION] Cache MISS for session {req.session_id}, round {next_round}. Generating fresh location.")
+            logger.info("Cache MISS for session {}, round {}. Generating fresh location.", req.session_id, next_round)
             next_location = await generate_location_data(next_round, current_location.get("location", {}).get("country"))
             
         update_data = {
@@ -254,9 +242,8 @@ async def evaluate_session_drawing(req: SessionEvaluateRequest, background_tasks
         }
         update_session_by_id(req.session_id, update_data)
         
-        print(f"Round {current_round} Complete. Advanced session {req.session_id} to Round {next_round}.")
-        print(f"Next Location: {next_location['location']['name']}")
-        print(f"==========================================\n")
+        logger.info("Round {} Complete. Advanced session {} to Round {}. Next location: {}", 
+                    current_round, req.session_id, next_round, next_location['location']['name'])
         
         return {
             "evaluation": evaluation_res,
@@ -275,7 +262,8 @@ async def evaluate_session_drawing(req: SessionEvaluateRequest, background_tasks
         retries = req.retry_count or 0
         persona_name = predict_playstyle_persona(avg_time, avg_strokes, retries, avg_score)
         
-        print(f"Session {req.session_id} Complete. Total Score: {total_score} | Average Effort: {average_effort:.2f} | Persona: {persona_name}")
+        logger.info("Session {} Complete. Total Score: {} | Average Effort: {:.2f} | Persona: {}", 
+                    req.session_id, total_score, average_effort, persona_name)
         
         leaderboard_data = {
             "player_name": player_name,
@@ -290,13 +278,13 @@ async def evaluate_session_drawing(req: SessionEvaluateRequest, background_tasks
         
         if supabase:
             try:
-                print(f"[SESSION LEADERBOARD] Auto-submitting score {total_score} for '{player_name}'...")
+                logger.info("Auto-submitting score {} for '{}' to leaderboard...", total_score, player_name)
                 supabase.table("geosketch_scores").insert([leaderboard_data]).execute()
-                print(f"[SESSION LEADERBOARD] SUCCESS - Score saved.")
+                logger.info("Leaderboard submit SUCCESS - Score saved for '{}'.", player_name)
             except Exception as save_err:
-                print(f"[SESSION LEADERBOARD] ERROR saving to leaderboard: {save_err}")
+                logger.error("Leaderboard submit ERROR: {}", save_err)
         else:
-            print(f"[SESSION LEADERBOARD] Mock Mode - Suppressed database save.")
+            logger.info("Leaderboard submit: Mock Mode (suppressed DB save).")
             
         update_data = {
             "status": "completed",
@@ -304,8 +292,7 @@ async def evaluate_session_drawing(req: SessionEvaluateRequest, background_tasks
         }
         update_session_by_id(req.session_id, update_data)
         
-        print(f"Session {req.session_id} status set to completed.")
-        print(f"==========================================\n")
+        logger.info("Session {} status set to completed.", req.session_id)
         
         return {
             "evaluation": evaluation_res,
@@ -322,7 +309,7 @@ async def get_location(
     if session_id and session_id in PREEMPTIVE_CACHE:
         session_rounds = PREEMPTIVE_CACHE[session_id]
         if round_num in session_rounds:
-            print(f"Cache HIT for session {session_id}, round {round_num}!")
+            logger.info("Location request: Cache HIT for session {}, round {}", session_id, round_num)
             round_data = session_rounds.pop(round_num)
             if not session_rounds:
                 PREEMPTIVE_CACHE.pop(session_id, None)
@@ -351,7 +338,7 @@ async def evaluate_drawing(req: EvaluationRequest, background_tasks: BackgroundT
         try:
             image_bytes = base64.b64decode(clean_base64)
         except Exception as e:
-            print(f"Error decoding base64 image: {e}")
+            logger.error("Error decoding base64 image: {}", e)
             raise HTTPException(status_code=400, detail="Invalid base64 image data")
 
         try:
@@ -425,14 +412,14 @@ async def evaluate_drawing(req: EvaluationRequest, background_tasks: BackgroundT
                         final_score = max(0, min(100, int(round(scaled * 100))))
                     
                     json_result["score"] = final_score
-                    print(f"Cosine Similarity: {similarity:.4f} --> Predicted score: {final_score}")
+                    logger.info("Embedding similarity: {:.4f} --> Predicted score: {}", similarity, final_score)
                 except Exception as emb_err:
-                    print(f"Error calculating embedding similarity: {emb_err}")
+                    logger.warning("Error calculating embedding similarity: {}", emb_err)
                     pass
                     
             res = {**json_result, "isMock": False}
         except Exception as e:
-            print(f"Error calling Vision AI: {e}")
+            logger.exception("Error calling Vision AI")
             res = {
                 "objectDrawn": "Mysterious Error Block",
                 "targetObject": "The Matrix",
@@ -470,9 +457,10 @@ async def evaluate_drawing(req: EvaluationRequest, background_tasks: BackgroundT
             
             if "evaluation" in res:
                 res["evaluation"] = res["evaluation"] + " " + effort_comment
-            print(f"Effort Scorer: raw={raw_effort:.4f} --> score={effort_score:.2f}/10 (Final score: {base_score} -> {final_score})")
+            logger.info("Effort Scorer: raw={:.4f} --> score={:.2f}/10 (Final score: {} -> {})", 
+                        raw_effort, effort_score, base_score, final_score)
         except Exception as effort_err:
-            print(f"Error running Effort Model: {effort_err}")
+            logger.error("Error running Effort Model: {}", effort_err)
 
     if req.round_number == 2 and CHURN_MODEL and req.session_id:
         r1_score_val = req.r1_score if req.r1_score is not None else 80
@@ -498,7 +486,7 @@ async def evaluate_drawing(req: EvaluationRequest, background_tasks: BackgroundT
         try:
             probs = CHURN_MODEL.predict_proba(features)[0]
             prob_completion = float(probs[1])
-            print(f"Session {req.session_id} - Predicted completion probability: {prob_completion:.4f}")
+            logger.info("Session {} - Predicted completion probability: {:.4f}", req.session_id, prob_completion)
             
             if prob_completion > 0.85:
                 background_tasks.add_task(
@@ -506,9 +494,9 @@ async def evaluate_drawing(req: EvaluationRequest, background_tasks: BackgroundT
                     req.session_id,
                     req.selected_country
                 )
-                print(f"Scheduled preemptive pre-caching for session {req.session_id} (P={prob_completion:.2f})")
+                logger.info("Scheduled preemptive pre-caching for session {} (P={:.2f})", req.session_id, prob_completion)
         except Exception as ml_err:
-            print(f"Error running Churn Predictor: {ml_err}")
+            logger.error("Error running Churn Predictor: {}", ml_err)
 
     return res
 
@@ -545,5 +533,6 @@ async def game_summary(req: SessionSummaryRequest):
             "gm_review": gm_review
         }
     except Exception as e:
-        print(f"Error computing game summary persona: {e}")
+        logger.exception("Error computing game summary persona")
         raise HTTPException(status_code=500, detail=str(e))
+
