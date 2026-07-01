@@ -9,7 +9,7 @@ load_dotenv()
 # Fallback to root directory if present
 root_env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
 if os.path.exists(root_env_path):
-    load_dotenv(dotenv_path=root_env_path)
+    load_dotenv(dotenv_path=root_env_path) 
 
 class Settings(BaseSettings):
     supabase_url: Optional[str] = None

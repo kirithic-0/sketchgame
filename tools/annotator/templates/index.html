@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoSketch Data Annotator</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --text-color: #f0f0f0;
+            --accent-color: #e53935; /* Red for bad */
+            --card-bg: #1e1e1e;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        header {
+            width: 100%;
+            max-width: 1200px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .stats {
+            font-size: 1.2rem;
+            color: #aaa;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 15px;
+            width: 100%;
+            max-width: 1200px;
+        }
+        
+        .image-card {
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.1s ease-in-out, box-shadow 0.1s ease-in-out;
+            box-sizing: border-box;
+            border: 4px solid transparent;
+            position: relative;
+        }
+        
+        .image-card:hover {
+            transform: scale(1.02);
+        }
+        
+        .image-card img {
+            width: 100%;
+            height: 220px;
+            object-fit: cover;
+            display: block;
+            pointer-events: none;
+        }
+        
+        .image-card.bad {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 15px rgba(229, 57, 53, 0.5);
+        }
+        
+        .image-card.bad::after {
+            content: 'BAD';
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: var(--accent-color);
+            color: white;
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+        
+        .controls {
+            margin-top: 30px;
+            position: sticky;
+            bottom: 20px;
+            background-color: rgba(18, 18, 18, 0.9);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 -5px 20px rgba(0,0,0,0.5);
+        }
+        
+        button {
+            background-color: #3B82F6;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        button:hover {
+            background-color: #2563EB;
+        }
+        
+        button:active {
+            transform: scale(0.98);
+        }
+        
+        .loading {
+            font-size: 1.5rem;
+            margin-top: 50px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>GeoSketch Annotator</h1>
+        <div class="stats" id="stats">Loading...</div>
+    </header>
+    
+    <div class="grid" id="image-grid">
+        <div class="loading" id="loading-msg">Fetching images...</div>
+    </div>
+    
+    <div class="controls" id="controls" style="display: none;">
+        <button id="submit-btn" onclick="submitBatch()">Submit & Next Batch (Enter)</button>
+    </div>
+
+    <script>
+        let currentImages = [];
+        let selectedBad = new Set();
+        let isSubmitting = false;
+
+        async function loadImages() {
+            try {
+                const res = await fetch('/api/images');
+                const data = await res.json();
+                
+                currentImages = data.images;
+                selectedBad.clear();
+                
+                document.getElementById('stats').innerText = `${data.remaining} images remaining`;
+                
+                const grid = document.getElementById('image-grid');
+                grid.innerHTML = '';
+                
+                if (currentImages.length === 0) {
+                    grid.innerHTML = '<div class="loading">No more images left to classify! Great job!</div>';
+                    document.getElementById('controls').style.display = 'none';
+                    return;
+                }
+                
+                document.getElementById('controls').style.display = 'block';
+                
+                currentImages.forEach(img => {
+                    const card = document.createElement('div');
+                    card.className = 'image-card';
+                    card.onclick = () => toggleBad(card, img);
+                    
+                    const imgEl = document.createElement('img');
+                    imgEl.src = `/images/${img}`;
+                    imgEl.loading = 'lazy';
+                    
+                    card.appendChild(imgEl);
+                    grid.appendChild(card);
+                });
+            } catch (err) {
+                console.error(err);
+                document.getElementById('image-grid').innerHTML = '<div class="loading" style="color:red;">Error loading images. Is the server running?</div>';
+            }
+        }
+
+        function toggleBad(cardElement, filename) {
+            if (selectedBad.has(filename)) {
+                selectedBad.delete(filename);
+                cardElement.classList.remove('bad');
+            } else {
+                selectedBad.add(filename);
+                cardElement.classList.add('bad');
+            }
+        }
+
+        async function submitBatch() {
+            if (isSubmitting || currentImages.length === 0) return;
+            isSubmitting = true;
+            
+            const btn = document.getElementById('submit-btn');
+            const originalText = btn.innerText;
+            btn.innerText = 'Submitting...';
+            btn.style.backgroundColor = '#555';
+            
+            try {
+                const res = await fetch('/api/submit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        all: currentImages,
+                        bad: Array.from(selectedBad)
+                    })
+                });
+                
+                if (res.ok) {
+                    await loadImages();
+                } else {
+                    alert("Error submitting batch!");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Network error while submitting.");
+            } finally {
+                isSubmitting = false;
+                btn.innerText = originalText;
+                btn.style.backgroundColor = '#3B82F6';
+            }
+        }
+
+        // Keyboard shortcut
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                submitBatch();
+            }
+        });
+
+        // Init
+        loadImages();
+    </script>
+</body>
+</html>
