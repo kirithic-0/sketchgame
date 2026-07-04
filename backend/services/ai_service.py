@@ -132,7 +132,7 @@ async def call_groq_vision(prompt: str, image_bytes: bytes, mime_type: str) -> s
         
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
     payload = {
-        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "model": "llama-3.3-70b-versatile",
         "messages": [
             {
                 "role": "user",
