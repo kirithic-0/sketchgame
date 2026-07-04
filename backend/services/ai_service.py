@@ -3,6 +3,10 @@ import json
 import httpx
 import math
 import base64
+import os
+import io
+import numpy as np
+from PIL import Image
 from typing import Optional, Dict, Any
 from fastapi import HTTPException
 import google.generativeai as genai
@@ -13,6 +17,19 @@ from backend.core.state import PREEMPTIVE_CACHE
 # Initialize Gemini if config is set
 if settings.gemini_api_key:
     genai.configure(api_key=settings.gemini_api_key)
+    
+try:
+    import onnxruntime as ort
+    ONNX_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models', 'model.onnx')
+    if os.path.exists(ONNX_MODEL_PATH):
+        logger.info(f"Loading ONNX model from {ONNX_MODEL_PATH}")
+        ort_session = ort.InferenceSession(ONNX_MODEL_PATH)
+    else:
+        logger.warning(f"ONNX model not found at {ONNX_MODEL_PATH}. Quality filtering disabled.")
+        ort_session = None
+except ImportError:
+    logger.warning("onnxruntime not installed. Quality filtering disabled.")
+    ort_session = None
 
 CITIES = [
   { 'name': 'Tokyo', 'lat': 35.6762, 'lng': 139.6503, 'country': 'Japan' },
@@ -310,6 +327,30 @@ async def generate_location_data(round_num: int, country: Optional[str] = None) 
                             if valid_image:
                                 logger.info("Successfully found street view image on attempt {} at ({}, {})", attempt + 1, searchLat, searchLng)
                                 image_url = valid_image.get("thumb_1024_url", valid_image.get("thumb_2048_url"))
+                                
+                                # --- ONNX Quality Check ---
+                                if ort_session is not None:
+                                    try:
+                                        img_resp = await client.get(image_url)
+                                        if img_resp.status_code == 200:
+                                            img = Image.open(io.BytesIO(img_resp.content)).convert('RGB').resize((224, 224))
+                                            img_data = np.array(img).astype('float32') / 255.0
+                                            img_data = (img_data - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]
+                                            img_data = np.transpose(img_data, (2, 0, 1))
+                                            img_data = np.expand_dims(img_data, axis=0).astype('float32')
+                                            
+                                            outputs = ort_session.run(None, {'input': img_data})
+                                            bad_probability = float(np.exp(outputs[0][0][1]) / np.sum(np.exp(outputs[0][0])))
+                                            
+                                            if bad_probability > 0.3:
+                                                logger.info(f"Image rejected by ONNX model (Bad Prob: {bad_probability:.3f}). Searching again...")
+                                                continue
+                                            else:
+                                                logger.info(f"Image passed ONNX quality check (Bad Prob: {bad_probability:.3f}).")
+                                    except Exception as e:
+                                        logger.error(f"Error running ONNX inference: {e}")
+                                # --------------------------
+                                
                                 objective_info = await generate_objective_for_image(image_url, round_num)
                                 return {
                                     "location": location,

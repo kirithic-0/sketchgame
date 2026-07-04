@@ -36,11 +36,16 @@ def setup_logging():
         ]
     )
 
-    # Route all standard logging library events (level 0 = all messages) through InterceptHandler
-    logging.basicConfig(handlers=[InterceptHandler()], level=0)
+    # Route all standard logging library events through InterceptHandler
+    logging.basicConfig(handlers=[InterceptHandler()], level=logging.INFO)
 
     # Specifically intercept uvicorn and fastapi logs to prevent duplicate entries
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
         logging_logger = logging.getLogger(name)
         logging_logger.handlers = [InterceptHandler()]
         logging_logger.propagate = False
+
+    # Silence noisy loggers
+    for noisy_logger in ("httpcore", "httpx", "hpack", "supabase"):
+        logging_logger = logging.getLogger(noisy_logger)
+        logging_logger.setLevel(logging.WARNING)

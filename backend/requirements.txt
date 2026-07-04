@@ -10,3 +10,6 @@ httpx
 scikit-learn
 joblib
 loguru
+onnxruntime
+numpy
+Pillow
