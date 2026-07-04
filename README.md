@@ -102,8 +102,8 @@ GeoSketch doesn't just rely on a single API call; it uses a multi-layered evalua
 3. **Score Normalization (ONNX Regressor):** 
    - A locally hosted regression model takes the semantic score and effort multiplier to calculate the final, normalized leaderboard score.
 
-## 👨‍💻 Undergraduate Project Highlights
-If evaluating this project for an academic submission, please note the following engineering achievements:
+## 👨‍💻 Engineering & Architecture Highlights
+This project was built with a focus on scalable, modern engineering practices:
 - **Stateless Architecture:** No heavy session state in the database. JWTs are used for 6-hour temporary play sessions.
 - **Asynchronous Processing:** Heavy tasks like uploading the final fused image to Supabase Storage are handled via FastAPI `BackgroundTasks`, ensuring lightning-fast HTTP responses.
 - **DDoS/Spam Protection:** In-memory sliding-window rate limiting (`slowapi`) protects the Gemini API from being exhausted by malicious scripts.
