@@ -111,7 +111,6 @@ export function ResultScreen({
             {/* Twist Card */}
             <div className="consequence-box" style={{ flexGrow: 1, minHeight: '100px', display: 'flex', flexDirection: 'column', gap: '0.5rem', background: '#FFF3E0', borderColor: '#F57C00' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderBottom: '2.5px solid #F57C00', paddingBottom: '0.35rem', marginBottom: '0.25rem' }}>
-                <Sparkles style={{ width: '15px', height: '15px', color: '#F57C00' }} />
                 <span style={{ fontSize: '0.75rem', fontWeight: '900', textTransform: 'uppercase', color: '#F57C00', letterSpacing: '0.05em' }}>The Twist / Consequence</span>
               </div>
               <p className="consequence-text" style={{ margin: '0', fontSize: '0.95rem', color: '#5D4037', fontStyle: 'italic', fontWeight: '700', lineHeight: '1.4' }}>

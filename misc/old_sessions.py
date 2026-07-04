@@ -32,20 +32,78 @@ from backend.services.ml_service import (
     PERSONA_MODEL,
     SCORE_REGRESSOR
 )
-from backend.services.storage_service import upload_run_image
-
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Request
-from backend.core.rate_limit import limiter
-
-from backend.core.security import create_session_token, verify_session_token
 
 router = APIRouter(prefix="/api")
+
+# Helper to get session from database or mock cache
+def get_session_by_id(session_id: str) -> Optional[Dict[str, Any]]:
+    logger.debug("Retrieving session {}...", session_id)
+    if supabase:
+        try:
+            response = supabase.table("geosketch_sessions").select("*").eq("id", session_id).execute()
+            if response.data and len(response.data) > 0:
+                logger.info("Found session {} in database.", session_id)
+                return response.data[0]
+            logger.warning("Session {} not found in database.", session_id)
+            return None
+        except Exception as e:
+            logger.exception("Error querying Supabase for session ID: {}", session_id)
+            return None
+    else:
+        session = MOCK_SESSIONS.get(session_id)
+        if session:
+            logger.info("Found session {} in mock cache.", session_id)
+        else:
+            logger.warning("Session {} not found in mock cache.", session_id)
+        return session
+
+# Helper to save new session
+def save_new_session(session_data: Dict[str, Any]) -> Dict[str, Any]:
+    logger.info("Creating new session for player '{}'...", session_data['player_name'])
+    if supabase:
+        try:
+            response = supabase.table("geosketch_sessions").insert([session_data]).execute()
+            if response.data and len(response.data) > 0:
+                inserted = response.data[0]
+                logger.info("Created session {} in database.", inserted['id'])
+                return inserted
+            raise Exception("No data returned from insert operation.")
+        except Exception as e:
+            logger.exception("Error inserting new session to Supabase")
+            raise HTTPException(status_code=500, detail=f"Database insert failed: {e}")
+    else:
+        session_id = str(uuid.uuid4())
+        session_data["id"] = session_id
+        MOCK_SESSIONS[session_id] = session_data
+        logger.info("Created session {} in mock cache.", session_id)
+        return session_data
+
+# Helper to update session
+def update_session_by_id(session_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    logger.debug("Updating session {} with data keys: {}", session_id, list(update_data.keys()))
+    if supabase:
+        try:
+            response = supabase.table("geosketch_sessions").update(update_data).eq("id", session_id).execute()
+            if response.data and len(response.data) > 0:
+                logger.info("Updated session {} in database.", session_id)
+                return response.data[0]
+            logger.warning("Update succeeded but session {} not found in database.", session_id)
+            return None
+        except Exception as e:
+            logger.exception("Error updating Supabase session ID: {}", session_id)
+            raise HTTPException(status_code=500, detail=f"Database update failed: {e}")
+    else:
+        if session_id in MOCK_SESSIONS:
+            MOCK_SESSIONS[session_id].update(update_data)
+            logger.info("Updated session {} in mock cache.", session_id)
+            return MOCK_SESSIONS[session_id]
+        logger.warning("Session {} not found in mock cache to update.", session_id)
+        return None
 
 
 # Endpoints for Session API
 @router.post("/session/start")
-@limiter.limit("100/minute")
-async def start_session(request: Request, req: SessionStartRequest, background_tasks: BackgroundTasks):
+async def start_session(req: SessionStartRequest, background_tasks: BackgroundTasks):
     logger.info("ENDPOINT: START SESSION - Player: {}, Country: {}", req.player_name, req.selected_country)
     
     first_location = await generate_location_data(1, req.selected_country)
@@ -58,33 +116,40 @@ async def start_session(request: Request, req: SessionStartRequest, background_t
         "round_results": []
     }
     
-    session_token = create_session_token(session_data)
+    session = save_new_session(session_data)
+    session_id = session["id"]
     
-    logger.info("Generated Session Token | Round 1 Location: {}", first_location['location']['name'])
+    logger.info("Generated Session ID: {} | Round 1 Location: {}", session_id, first_location['location']['name'])
     
     return {
-        "session_token": session_token,
+        "session_id": session_id,
         "current_round": 1,
         "current_location": first_location
     }
 
 @router.get("/session/status")
-async def get_session_status(session_token: str = Query(...)):
-    logger.info("ENDPOINT: GET SESSION STATUS")
+async def get_session_status(session_id: str = Query(...), player_name: Optional[str] = None):
+    logger.info("ENDPOINT: GET SESSION STATUS - Session ID: {}, Player: {}", session_id, player_name)
     
-    session = verify_session_token(session_token)
+    session = get_session_by_id(session_id)
     if not session:
-        logger.warning("Session status check: INVALID OR EXPIRED TOKEN")
-        raise HTTPException(status_code=401, detail="Session token invalid or expired.")
+        logger.warning("Session status check: SESSION NOT FOUND for ID {}", session_id)
+        raise HTTPException(status_code=404, detail="Session not found.")
         
     if session.get("status") == "completed":
-        logger.warning("Session status check: SESSION ALREADY COMPLETED for player {}", session.get("player_name"))
+        logger.warning("Session status check: SESSION ALREADY COMPLETED for ID {}", session_id)
         raise HTTPException(status_code=404, detail="Session is already completed.")
+        
+    if player_name and session.get("player_name") != player_name:
+        logger.warning("Session status check: USERNAME MISMATCH (Expected '{}', Got '{}'). Invalidating session ID {}", 
+                       session.get('player_name'), player_name, session_id)
+        update_session_by_id(session_id, {"status": "completed"})
+        raise HTTPException(status_code=404, detail="Session username mismatch. Session invalidated.")
         
     logger.info("Session status check: ACTIVE | Player: {} | Round: {}", session.get('player_name'), session.get('current_round'))
     
     return {
-        "session_token": session_token,
+        "session_id": session["id"],
         "player_name": session["player_name"],
         "current_round": session["current_round"],
         "current_location": session["current_location"],
@@ -92,23 +157,22 @@ async def get_session_status(session_token: str = Query(...)):
     }
 
 @router.post("/session/evaluate")
-@limiter.limit("100/minute")
-async def evaluate_session_drawing(request: Request, req: SessionEvaluateRequest, background_tasks: BackgroundTasks):
-    logger.info("ENDPOINT: EVALUATE SESSION DRAWING")
+async def evaluate_session_drawing(req: SessionEvaluateRequest, background_tasks: BackgroundTasks):
+    logger.info("ENDPOINT: EVALUATE SESSION DRAWING - Session ID: {}", req.session_id)
     
-    session = verify_session_token(req.session_token)
+    session = get_session_by_id(req.session_id)
     if not session:
-        logger.warning("Evaluation failed: Session token invalid or expired")
-        raise HTTPException(status_code=401, detail="Session token invalid or expired.")
+        logger.warning("Evaluation failed: Session not found for ID {}", req.session_id)
+        raise HTTPException(status_code=404, detail="Session not found.")
         
     if session.get("status") == "completed":
-        logger.warning("Evaluation failed: Session already completed")
+        logger.warning("Evaluation failed: Session already completed for ID {}", req.session_id)
         raise HTTPException(status_code=404, detail="Session already completed.")
         
     current_round = session["current_round"]
     player_name = session["player_name"]
     current_location = session["current_location"]
-    round_results = session.get("round_results", [])
+    round_results = session["round_results"]
     
     logger.info("Evaluating Player: '{}' | Round: {}/5 | Objective: '{}'", player_name, current_round, current_location.get('objective'))
     
@@ -119,7 +183,7 @@ async def evaluate_session_drawing(request: Request, req: SessionEvaluateRequest
         vqa_question=current_location.get("vqa_question"),
         target_state=current_location.get("target_state"),
         
-        session_id="jwt_session",
+        session_id=req.session_id,
         round_number=current_round,
         selected_country=current_location.get("location", {}).get("country"),
         r1_score=round_results[0].get("score") if len(round_results) > 0 else None,
@@ -136,16 +200,6 @@ async def evaluate_session_drawing(request: Request, req: SessionEvaluateRequest
     )
     
     evaluation_res = await evaluate_drawing(evaluation_req, background_tasks)
-    
-    # Fire off background task to upload the image to Supabase Gallery
-    background_tasks.add_task(
-        upload_run_image,
-        req.imageBase64,
-        player_name,
-        evaluation_res.get("score", 70),
-        current_location.get("objective", ""),
-        evaluation_res.get("twist", "")
-    )
     
     round_result = {
         "round": current_round,
@@ -168,20 +222,30 @@ async def evaluate_session_drawing(request: Request, req: SessionEvaluateRequest
     
     if current_round < 5:
         next_round = current_round + 1
-        
-        logger.info("Generating fresh location for round {}.", next_round)
-        next_location = await generate_location_data(next_round, current_location.get("location", {}).get("country"))
+        next_location = None
+        if req.session_id in PREEMPTIVE_CACHE:
+            session_rounds = PREEMPTIVE_CACHE[req.session_id]
+            if next_round in session_rounds:
+                logger.info("Cache HIT for session {}, round {}", req.session_id, next_round)
+                next_location = session_rounds.pop(next_round)
+                if not session_rounds:
+                    PREEMPTIVE_CACHE.pop(req.session_id, None)
+                    
+        if not next_location:
+            logger.info("Cache MISS for session {}, round {}. Generating fresh location.", req.session_id, next_round)
+            next_location = await generate_location_data(next_round, current_location.get("location", {}).get("country"))
             
-        session["current_round"] = next_round
-        session["current_location"] = next_location
-        session["round_results"] = updated_round_results
-        new_token = create_session_token(session)
+        update_data = {
+            "current_round": next_round,
+            "current_location": next_location,
+            "round_results": updated_round_results
+        }
+        update_session_by_id(req.session_id, update_data)
         
-        logger.info("Round {} Complete. Advanced to Round {}. Next location: {}", 
-                    current_round, next_round, next_location['location']['name'])
+        logger.info("Round {} Complete. Advanced session {} to Round {}. Next location: {}", 
+                    current_round, req.session_id, next_round, next_location['location']['name'])
         
         return {
-            "session_token": new_token,
             "evaluation": evaluation_res,
             "next_location": next_location,
             "current_round": next_round,
@@ -196,10 +260,10 @@ async def evaluate_session_drawing(request: Request, req: SessionEvaluateRequest
         avg_strokes = sum(r["strokes"] for r in updated_round_results) / 5.0
         avg_score = total_score / 5.0
         retries = req.retry_count or 0
-        persona_name, gm_review = predict_playstyle_persona(avg_time, avg_strokes, retries, avg_score)
+        persona_name = predict_playstyle_persona(avg_time, avg_strokes, retries, avg_score)
         
-        logger.info("Session Complete. Total Score: {} | Average Effort: {:.2f} | Persona: {}", 
-                    total_score, average_effort, persona_name)
+        logger.info("Session {} Complete. Total Score: {} | Average Effort: {:.2f} | Persona: {}", 
+                    req.session_id, total_score, average_effort, persona_name)
         
         leaderboard_data = {
             "player_name": player_name,
@@ -222,25 +286,38 @@ async def evaluate_session_drawing(request: Request, req: SessionEvaluateRequest
         else:
             logger.info("Leaderboard submit: Mock Mode (suppressed DB save).")
             
-        session["status"] = "completed"
-        session["round_results"] = updated_round_results
-        new_token = create_session_token(session)
+        update_data = {
+            "status": "completed",
+            "round_results": updated_round_results
+        }
+        update_session_by_id(req.session_id, update_data)
         
-        logger.info("Session status set to completed.")
+        logger.info("Session {} status set to completed.", req.session_id)
         
         return {
-            "session_token": new_token,
             "evaluation": evaluation_res,
             "total_score": total_score,
-            "is_completed": True,
-            "persona_name": persona_name,
-            "gm_review": gm_review
+            "is_completed": True
         }
 
+@router.get("/location")
+async def get_location(
+    round_num: int = Query(1, alias="round"),
+    country: Optional[str] = None,
+    session_id: Optional[str] = None
+):
+    if session_id and session_id in PREEMPTIVE_CACHE:
+        session_rounds = PREEMPTIVE_CACHE[session_id]
+        if round_num in session_rounds:
+            logger.info("Location request: Cache HIT for session {}, round {}", session_id, round_num)
+            round_data = session_rounds.pop(round_num)
+            if not session_rounds:
+                PREEMPTIVE_CACHE.pop(session_id, None)
+            return round_data
+            
+    return await generate_location_data(round_num, country)
 
-
-
-
+@router.post("/evaluate")
 async def evaluate_drawing(req: EvaluationRequest, background_tasks: BackgroundTasks):
     res = {}
     if not settings.gemini_api_key and not settings.groq_api_key:
@@ -422,4 +499,40 @@ async def evaluate_drawing(req: EvaluationRequest, background_tasks: BackgroundT
             logger.error("Error running Churn Predictor: {}", ml_err)
 
     return res
+
+@router.post("/game-summary")
+async def game_summary(req: SessionSummaryRequest):
+    if not PERSONA_SCALER or not PERSONA_MODEL:
+        raise HTTPException(status_code=500, detail="Persona clustering models not loaded on backend.")
+
+    try:
+        features = [[req.avg_draw_time, req.avg_stroke_count, req.retry_count, req.average_score]]
+        scaled_feats = PERSONA_SCALER.transform(features)
+        cluster = int(PERSONA_MODEL.predict(scaled_feats)[0])
+        
+        centers = PERSONA_SCALER.inverse_transform(PERSONA_MODEL.cluster_centers_)
+        strokes_centers = [c[1] for c in centers]
+        sorted_indices = sorted(range(len(strokes_centers)), key=lambda k: strokes_centers[k])
+        
+        speedrunner_cluster = sorted_indices[0]
+        artist_cluster = sorted_indices[2]
+
+        if cluster == speedrunner_cluster:
+            persona = "The Speedrunner"
+            gm_review = "Finished in a flash? I suppose speed is a substitute for skill in your mind. Your scribbles look like a toddler's sneeze, but your efficiency is... tolerable."
+        elif cluster == artist_cluster:
+            persona = "The Perfectionist Artist"
+            gm_review = "Such detail! Such dedication! You spend eternity placing every pixel. Too bad your beautiful artwork is destined to be incinerated in my database."
+        else:
+            persona = "The Chaos Agent"
+            gm_review = "You cleared the canvas constantly, creating erratic, chaotic lines. I respect the pure, unhinged instability of your gameplay. Magnificent disaster."
+
+        return {
+            "cluster_id": cluster,
+            "persona_name": persona,
+            "gm_review": gm_review
+        }
+    except Exception as e:
+        logger.exception("Error computing game summary persona")
+        raise HTTPException(status_code=500, detail=str(e))
 

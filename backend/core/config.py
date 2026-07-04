@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
     mapillary_access_token: Optional[str] = None
+    jwt_secret_key: str = "default_secret_key_change_me_in_production"
 
     def __init__(self, **values):
         super().__init__(**values)

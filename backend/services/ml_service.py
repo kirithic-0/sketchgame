@@ -26,12 +26,14 @@ SCORE_REGRESSOR_PATH = os.path.join(BASE_DIR, "score_regressor.pkl")
 SCORE_REGRESSOR = joblib.load(SCORE_REGRESSOR_PATH) if os.path.exists(SCORE_REGRESSOR_PATH) else None
 
 # Helper to classify playstyle persona
-def predict_playstyle_persona(avg_time: float, avg_strokes: float, retries: int, avg_score: float) -> str:
+def predict_playstyle_persona(avg_time: float, avg_strokes: float, retries: int, avg_score: float) -> tuple[str, str]:
     logger.info("Classifying style for Time: {:.2f}s, Strokes: {:.2f}, Retries: {}, Score: {:.2f}...", 
                 avg_time, avg_strokes, retries, avg_score)
+    
+    default_review = "You exist. You drew things. I am whelmed."
     if not PERSONA_SCALER or not PERSONA_MODEL:
         logger.warning("Persona classifier models not loaded. Defaulting to 'Neutral'.")
-        return "Neutral"
+        return "Neutral", default_review
     try:
         features = [[avg_time, avg_strokes, float(retries), avg_score]]
         scaled_feats = PERSONA_SCALER.transform(features)
@@ -46,14 +48,17 @@ def predict_playstyle_persona(avg_time: float, avg_strokes: float, retries: int,
         
         if cluster == speedrunner_cluster:
             persona = "The Speedrunner"
+            gm_review = "Finished in a flash? I suppose speed is a substitute for skill in your mind. Your scribbles look like a toddler's sneeze, but your efficiency is... tolerable."
         elif cluster == artist_cluster:
             persona = "The Perfectionist Artist"
+            gm_review = "Such detail! Such dedication! You spend eternity placing every pixel. Too bad your beautiful artwork is destined to be incinerated in my database."
         else:
             persona = "The Chaos Agent"
+            gm_review = "You cleared the canvas constantly, creating erratic, chaotic lines. I respect the pure, unhinged instability of your gameplay. Magnificent disaster."
             
         logger.info("Classified as '{}' (Cluster ID: {})", persona, cluster)
-        return persona
+        return persona, gm_review
     except Exception as e:
         logger.exception("Error running persona model. Defaulting to 'Neutral'.")
-        return "Neutral"
+        return "Neutral", default_review
 

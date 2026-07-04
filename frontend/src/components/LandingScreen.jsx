@@ -36,7 +36,6 @@ export function LandingScreen({
       {/* COLUMN 1: HOW TO PLAY / STEPS (LEFT SIDE) */}
       <div className="landing-steps-column">
         <div className="steps-header">
-          <Sparkles className="steps-header-icon" strokeWidth={3} />
           <h3 className="steps-header-title">How It Works</h3>
         </div>
         
@@ -64,7 +63,6 @@ export function LandingScreen({
         {/* Sleek Logo / Badge */}
         <div className="main-logo-badge">
           <div className="badge">
-            <Sparkles className="badge-icon" strokeWidth={3} />
             <span>Interactive Drawing & City Exploration</span>
           </div>
         </div>

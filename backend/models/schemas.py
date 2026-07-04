@@ -6,7 +6,7 @@ class SessionStartRequest(BaseModel):
     selected_country: Optional[str] = None
 
 class SessionEvaluateRequest(BaseModel):
-    session_id: str
+    session_token: str
     imageBase64: str
     locationId: str
     drawing_time: Optional[float] = None

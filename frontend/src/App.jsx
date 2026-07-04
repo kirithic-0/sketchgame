@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 
 import { mergeLayers } from './utils/imageExporter';
 import { extractStrokeFeatures } from './utils/strokeFeatures';
@@ -9,21 +9,11 @@ import { ResultScreen } from './components/ResultScreen';
 import { MatchSummary } from './components/MatchSummary';
 import { Header } from './components/Header';
 import { ErrorBanner } from './components/ErrorBanner';
+import { GalleryScreen } from './components/GalleryScreen';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
-
-// Color Palette presets for drawing
-const BRUSH_COLORS = [
-  { name: 'Black', hex: '#000000' },
-  { name: 'Red', hex: '#EF4444' },
-  { name: 'Blue', hex: '#3B82F6' },
-  { name: 'Green', hex: '#22C55E' },
-  { name: 'Yellow', hex: '#F59E0B' },
-  { name: 'Orange', hex: '#F97316' },
-  { name: 'Purple', hex: '#8B5CF6' },
-  { name: 'White', hex: '#FFFFFF' }
-];
+import { useTypewriterEffect } from './hooks/useTypewriterEffect';
 
 function App() {
   const canvasRef = useRef(null);
@@ -33,8 +23,6 @@ function App() {
   const [leaderboard, setLeaderboard] = useState([]);
   const [dbLoading, setDbLoading] = useState(false);
   const [objective, setObjective] = useState('');
-  const [vqaQuestion, setVqaQuestion] = useState('');
-  const [targetState, setTargetState] = useState('');
   const [selectedCountry, setSelectedCountry] = useState('Japan');
   const [difficulty, setDifficulty] = useState('Medium');
 
@@ -47,7 +35,7 @@ function App() {
   const [gameError, setGameError] = useState(null); // Capture and display API errors!
 
   // ML Caching and session states
-  const [sessionId, setSessionId] = useState('');
+  const [sessionToken, setSessionToken] = useState('');
   const [roundStartTime, setRoundStartTime] = useState(0);
   const [currentRoundTime, setCurrentRoundTime] = useState(0);
   const [retryCount, setRetryCount] = useState(0);
@@ -55,21 +43,19 @@ function App() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [gameStarting, setGameStarting] = useState(false);
 
-  // Drawing Brush configurations
-  const [brushColor, setBrushColor] = useState('#000000');
-  const [brushSize, setBrushSize] = useState(8);
-  const [isEraser, setIsEraser] = useState(false);
   const [currentStrokes, setCurrentStrokes] = useState([]);
 
   // Evaluation states
   const [evaluation, setEvaluation] = useState(null);
   const [evaluationResponse, setEvaluationResponse] = useState(null);
 
-
   // Username and Multi-round states
   const [username, setUsernameState] = useState(() => localStorage.getItem('geosketch_username') || '');
   const [currentRound, setCurrentRound] = useState(1);
   const [roundResults, setRoundResults] = useState([]);
+  
+  const totalScore = useMemo(() => roundResults.reduce((sum, r) => sum + r.score, 0), [roundResults]);
+
   const [previousRuns, setPreviousRuns] = useState(() => {
     try {
       const saved = localStorage.getItem('geosketch_runs');
@@ -84,19 +70,39 @@ function App() {
     localStorage.setItem('geosketch_username', name);
 
     // Invalidate active session if username changes
-    const activeSessionId = localStorage.getItem('geosketch_current_session_id');
-    if (activeSessionId) {
+    const activeSessionToken = localStorage.getItem('geosketch_current_session_token');
+    if (activeSessionToken) {
       console.log("[App] Username changed. Invalidating active session.");
-      localStorage.removeItem('geosketch_current_session_id');
-      setSessionId('');
+      localStorage.removeItem('geosketch_current_session_token');
+      setSessionToken('');
     }
   };
+
 
   // Animated/Typewriter states for rendering results smoothly
   const [displayedTwist, setDisplayedTwist] = useState('');
   const [displayedEvaluation, setDisplayedEvaluation] = useState('');
   const [displayedSatisfaction, setDisplayedSatisfaction] = useState('');
   const [displayedScore, setDisplayedScore] = useState('?');
+
+  useTypewriterEffect(
+    gamePhase,
+    evaluation,
+    setDisplayedTwist,
+    setDisplayedEvaluation,
+    setDisplayedSatisfaction,
+    setDisplayedScore,
+    evaluation?.score || 0,
+    setGamePhase
+  );
+
+  // Apply location helper
+  const applyLocationData = (curLoc) => {
+    setLocation(curLoc.location);
+    setStreetImage(curLoc);
+    setObjective(curLoc.objective || 'Draw something creative!');
+    setDifficulty(curLoc.difficulty || 'Medium');
+  };
 
   // Fetch Leaderboard from Backend
   const fetchLeaderboard = async () => {
@@ -120,41 +126,42 @@ function App() {
   // Restore active session on mount
   useEffect(() => {
     const restoreSession = async () => {
-      const activeSessionId = localStorage.getItem('geosketch_current_session_id');
-      if (activeSessionId) {
-        console.log(`[App] Found active session in localStorage: ${activeSessionId}. Querying backend status...`);
+      const activeSessionToken = localStorage.getItem('geosketch_current_session_token');
+      if (activeSessionToken) {
+        console.log(`[App] Found active session in localStorage: ${activeSessionToken}. Querying backend status...`);
         try {
           // If no username is set yet, default to local storage
           const currentUsername = username || localStorage.getItem('geosketch_username') || 'Anonymous';
-          const response = await fetch(`${API_BASE_URL}/session/status?session_id=${activeSessionId}&player_name=${currentUsername}`);
+          const response = await fetch(`${API_BASE_URL}/session/status?session_token=${activeSessionToken}&player_name=${currentUsername}`);
+          
           if (!response.ok) {
             throw new Error('Session status invalid or completed.');
           }
           const data = await response.json();
+          
+          // Important: Update token!
+          if (data.session_token) {
+            setSessionToken(data.session_token);
+            localStorage.setItem('geosketch_current_session_token', data.session_token);
+          }
 
           // Restore all state
-          setSessionId(data.session_id);
           setUsernameState(data.player_name);
           setCurrentRound(data.current_round);
           setRoundResults(data.round_results);
 
           const curLoc = data.current_location;
-          setLocation(curLoc.location);
-          setStreetImage(curLoc);
-          setObjective(curLoc.objective || 'Draw something creative!');
-          setVqaQuestion(curLoc.vqa_question || 'Is the drawing creative?');
-          setTargetState(curLoc.target_state || 'the drawing is creative');
-          setDifficulty(curLoc.difficulty || 'Medium');
+          applyLocationData(curLoc);
 
           setGamePhase('draw');
           setStrokesCount(0);
           setRoundStartTime(Date.now());
           setActiveScreen('game');
 
-          console.log(`[App] SUCCESS - Restored session ${activeSessionId} on round ${data.current_round}`);
+          console.log(`[App] SUCCESS - Restored session on round ${data.current_round}`);
         } catch (err) {
           console.warn(`[App] Failed to restore active session: ${err.message}. Clearing session ID.`);
-          localStorage.removeItem('geosketch_current_session_id');
+          localStorage.removeItem('geosketch_current_session_token');
         }
       }
     };
@@ -162,93 +169,18 @@ function App() {
     restoreSession();
   }, []);
 
-  // Trigger progressive typewriter & scoring counter animation upon complete evaluation
-  useEffect(() => {
-    if (gamePhase === 'result' && evaluation) {
-      const fullTwist = evaluation.twist || '';
-      const fullEval = evaluation.evaluation || '';
-      const fullSatisfied = evaluation.satisfiedText || '';
-      const targetScore = evaluation.score || 0;
-
-      setDisplayedTwist('');
-      setDisplayedEvaluation('');
-      setDisplayedSatisfaction('');
-      setDisplayedScore('?');
-
-      let timer;
-      let phase = 'twist'; // 'twist', 'eval', 'satisfied', 'score'
-      let charIndex = 0;
-
-      const animateText = () => {
-        if (phase === 'twist') {
-          if (charIndex < fullTwist.length) {
-            const char = fullTwist[charIndex];
-            setDisplayedTwist(prev => prev + char);
-            charIndex++;
-            timer = setTimeout(animateText, 20);
-          } else {
-            phase = 'eval';
-            charIndex = 0;
-            timer = setTimeout(animateText, 150);
-          }
-        } else if (phase === 'eval') {
-          if (charIndex < fullEval.length) {
-            const char = fullEval[charIndex];
-            setDisplayedEvaluation(prev => prev + char);
-            charIndex++;
-            timer = setTimeout(animateText, 20);
-          } else {
-            phase = 'satisfied';
-            charIndex = 0;
-            timer = setTimeout(animateText, 150);
-          }
-        } else if (phase === 'satisfied') {
-          if (charIndex < fullSatisfied.length) {
-            const char = fullSatisfied[charIndex];
-            setDisplayedSatisfaction(prev => prev + char);
-            charIndex++;
-            timer = setTimeout(animateText, 20);
-          } else {
-            phase = 'score';
-            let currentScore = 0;
-            setDisplayedScore(0);
-            const scoreStep = () => {
-              if (currentScore < targetScore) {
-                currentScore = Math.min(targetScore, currentScore + Math.ceil(targetScore / 20));
-                setDisplayedScore(currentScore);
-                timer = setTimeout(scoreStep, 30);
-              }
-            };
-            timer = setTimeout(scoreStep, 50);
-          }
-        }
-      };
-
-      timer = setTimeout(animateText, 100);
-
-      return () => {
-        clearTimeout(timer);
-      };
-    }
-  }, [gamePhase, evaluation]);
 
   // Fetch/Sync current session location details from backend
-  const loadLocation = async (sessId = sessionId) => {
+  const loadLocation = async (sessToken = sessionToken) => {
     setImgLoading(true);
     setGameError(null);
     try {
-      const currentUsername = username || localStorage.getItem('geosketch_username') || 'Anonymous';
-      const response = await fetch(`${API_BASE_URL}/session/status?session_id=${sessId}&player_name=${currentUsername}`);
+      const response = await fetch(`${API_BASE_URL}/session/status?session_token=${sessToken}`);
       if (!response.ok) throw new Error('Failed to fetch session status');
       const data = await response.json();
 
       const curLoc = data.current_location;
-      setLocation(curLoc.location);
-      setStreetImage(curLoc);
-      setObjective(curLoc.objective || 'Draw something creative!');
-      setVqaQuestion(curLoc.vqa_question || 'Is the drawing creative?');
-      setTargetState(curLoc.target_state || 'the drawing is creative');
-      setDifficulty(curLoc.difficulty || 'Medium');
+      applyLocationData(curLoc);
       setRoundStartTime(Date.now());
     } catch (err) {
       setGameError(`Session Sync Error: ${err.message}. Make sure the game server is running!`);
@@ -288,16 +220,11 @@ function App() {
       if (!response.ok) throw new Error('Failed to start session');
       const data = await response.json();
 
-      setSessionId(data.session_id);
-      localStorage.setItem('geosketch_current_session_id', data.session_id);
+      setSessionToken(data.session_token);
+      localStorage.setItem('geosketch_current_session_token', data.session_token);
 
       const curLoc = data.current_location;
-      setLocation(curLoc.location);
-      setStreetImage(curLoc);
-      setObjective(curLoc.objective || 'Draw something creative!');
-      setVqaQuestion(curLoc.vqa_question || 'Is the drawing creative?');
-      setTargetState(curLoc.target_state || 'the drawing is creative');
-      setDifficulty(curLoc.difficulty || 'Medium');
+      applyLocationData(curLoc);
       setRoundStartTime(Date.now());
       setActiveScreen('game');
     } catch (err) {
@@ -316,8 +243,7 @@ function App() {
     setCurrentStrokes([]);
     setGamePhase('draw');
     setEvaluation(null);
-    setScoreSubmitted(false);
-    await loadLocation(sessionId);
+    await loadLocation(sessionToken);
   };
 
   // Submit sketch to AI
@@ -348,7 +274,7 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          session_id: sessionId,
+          session_token: sessionToken,
           imageBase64: mergedBase64,
           locationId: location.id,
           drawing_time: elapsed,
@@ -361,6 +287,11 @@ function App() {
       });
       if (!response.ok) throw new Error('Evaluation request failed');
       const data = await response.json();
+
+      if (data.session_token) {
+        setSessionToken(data.session_token);
+        localStorage.setItem('geosketch_current_session_token', data.session_token);
+      }
 
       setEvaluationResponse(data);
       setEvaluation(data.evaluation);
@@ -416,56 +347,24 @@ function App() {
       setStrokesCount(0);
       setCurrentStrokes([]);
 
-      // Load next pre-generated location and target stats
       const nextLocData = evaluationResponse.next_location;
-      setLocation(nextLocData.location);
-      setStreetImage(nextLocData);
-      setObjective(nextLocData.objective || 'Draw something creative!');
-      setVqaQuestion(nextLocData.vqa_question || 'Is the drawing creative?');
-      setTargetState(nextLocData.target_state || 'the drawing is creative');
-      setDifficulty(nextLocData.difficulty || 'Medium');
+      applyLocationData(nextLocData);
       setRoundStartTime(Date.now());
     } else {
       // Completed! Score is already auto-saved in backend.
-      localStorage.removeItem('geosketch_current_session_id');
+      localStorage.removeItem('geosketch_current_session_token');
 
-      // Calculate averages for Playstyle Persona Clustering (Model 2)
-      const total = updatedResults.reduce((sum, r) => sum + r.score, 0);
-      const avgTime = updatedResults.reduce((sum, r) => sum + r.time, 0) / 5;
-      const avgStrokes = updatedResults.reduce((sum, r) => sum + r.strokes, 0) / 5;
-      const avgScore = total / 5;
-
-      // Fetch persona summary from backend
-      setSummaryLoading(true);
-      fetch(`${API_BASE_URL}/game-summary`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          avg_draw_time: avgTime,
-          avg_stroke_count: avgStrokes,
-          retry_count: retryCount,
-          average_score: avgScore
-        })
-      })
-        .then(res => {
-          if (!res.ok) throw new Error('Failed to fetch game summary');
-          return res.json();
-        })
-        .then(data => {
-          setPersonaResult(data);
-        })
-        .catch(err => {
-          console.error("Failed to load playstyle persona:", err);
-        })
-        .finally(() => {
-          setSummaryLoading(false);
-        });
+      // Persona is now passed directly from the 5th round session token evaluation
+      setPersonaResult({
+        persona_name: evaluationResponse.persona_name || 'Neutral',
+        gm_review: evaluationResponse.gm_review || 'Match completed.'
+      });
 
       // Save to local history
       const newRun = {
         date: new Date().toISOString(),
         username: username,
-        totalScore: total,
+        totalScore: updatedResults.reduce((sum, r) => sum + r.score, 0),
         rounds: updatedResults
       };
       setPreviousRuns(prev => {
@@ -567,15 +466,13 @@ function App() {
           />
         )}
 
+        {/* SCREEN 5: GALLERY SCREEN */}
+        {activeScreen === 'gallery' && (
+          <GalleryScreen />
+        )}
+
       </main>
 
-      {/* FOOTER BAR */}
-      <footer className="footer-bar">
-        <span className="footer-copy">© 2026 GeoSketch. Built with React & Supabase.</span>
-        <div className="footer-credits">
-          <span>Imagery: Mapillary 2D API</span>
-        </div>
-      </footer>
     </div>
   );
 }

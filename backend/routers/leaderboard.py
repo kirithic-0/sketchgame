@@ -1,10 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from backend.core.database import supabase
+from backend.core.rate_limit import limiter
 
 router = APIRouter(prefix="/api")
 
 @router.get("/leaderboard")
-async def get_leaderboard():
+@limiter.limit("200/minute")
+async def get_leaderboard(request: Request):
     if not supabase:
         return []
     try:

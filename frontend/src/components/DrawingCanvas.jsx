@@ -154,9 +154,11 @@ export const DrawingCanvas = forwardRef(({
       const finishedStroke = currentStrokeRef.current;
       setStrokes(prev => {
         const next = [...prev, finishedStroke];
-        onStrokeAdded(next.length);
+        // Don't call onStrokeAdded here because it triggers a parent state update during render!
         return next;
       });
+      // Call it outside the setState callback, using the functional state length + 1
+      onStrokeAdded(strokes.length + 1);
     }
 
     currentStrokeRef.current = null;

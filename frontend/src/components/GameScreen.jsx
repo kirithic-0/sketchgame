@@ -247,7 +247,6 @@ export function GameScreen({
             </div>
             
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', margin: '0.25rem 0' }}>
-              <Sparkles className="objective-sparkle" style={{ color: 'var(--secondary)', flexShrink: 0, marginTop: '0.25rem', width: '20px', height: '20px' }} />
               <div>
                 <h4 style={{ margin: '0 0 0.25rem', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Objective</h4>
                 <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800', color: 'var(--bg-neo-black)', lineHeight: '1.4' }}>

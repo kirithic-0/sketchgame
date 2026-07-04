@@ -153,7 +153,7 @@ async def call_groq_vision(prompt: str, image_bytes: bytes, mime_type: str) -> s
         "response_format": {
             "type": "json_object"
         },
-        "temperature": 0.2
+        "temperature": 0.7
     }
     
     headers = {
