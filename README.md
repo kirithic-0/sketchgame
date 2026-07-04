@@ -90,7 +90,7 @@ Visit `http://localhost:5173` to play!
 ## 📊 Evaluation & Machine Learning Pipeline
 GeoSketch doesn't just rely on a single API call; it uses a multi-layered evaluation pipeline:
 
-1. **Computer Vision (Gemini 1.5 Flash):** 
+1. **Computer Vision (llama-4-scout-17b-16e-instruct):** 
    - Takes the Base64 encoded Canvas drawing superimposed over the background.
    - Evaluates *what* was drawn, *where* it was drawn (Target Object), and grades the **Semantic Score (0-100)** based on how well it matches the Evil AI's objective.
    - Generates a witty, chaotic consequence ("The Twist").
