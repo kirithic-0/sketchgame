@@ -177,11 +177,12 @@ async def call_groq_vision(prompt: str, image_bytes: bytes, mime_type: str) -> s
 async def generate_content_with_fallback(prompt: str, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
     errors = []
     api_attempts = []
-    
-    if settings.groq_api_key:
-        api_attempts.append(("Groq", call_groq_vision))
     if settings.gemini_api_key:
         api_attempts.append(("Gemini", call_gemini_vision))
+
+    if settings.groq_api_key:
+        api_attempts.append(("Groq", call_groq_vision))
+   
         
     if not api_attempts:
         raise Exception("Neither Gemini nor Groq API keys are configured.")

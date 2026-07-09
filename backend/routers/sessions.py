@@ -4,6 +4,7 @@ import random
 import json
 import base64
 import os
+import time
 import joblib
 from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
@@ -12,7 +13,7 @@ from loguru import logger
 
 from backend.core.config import settings
 from backend.core.database import supabase
-from backend.core.state import MOCK_SESSIONS, PREEMPTIVE_CACHE
+from backend.core.state import MOCK_SESSIONS, PREEMPTIVE_CACHE, SESSION_STORE, cleanup_expired_sessions
 from backend.models.schemas import (
     SessionStartRequest,
     SessionEvaluateRequest,
@@ -48,19 +49,34 @@ router = APIRouter(prefix="/api")
 async def start_session(request: Request, req: SessionStartRequest, background_tasks: BackgroundTasks):
     logger.info("ENDPOINT: START SESSION - Player: {}, Country: {}", req.player_name, req.selected_country)
     
+    # Periodically clean up expired sessions from memory
+    evicted = cleanup_expired_sessions()
+    if evicted:
+        logger.info("Cleaned up {} expired sessions from memory.", evicted)
+    
     first_location = await generate_location_data(1, req.selected_country)
     
-    session_data = {
-        "player_name": req.player_name,
-        "current_round": 1,
-        "status": "in_progress",
+    # Generate a unique session ID
+    session_id = str(uuid.uuid4())
+    
+    # Store heavy data in memory (not in JWT)
+    SESSION_STORE[session_id] = {
         "current_location": first_location,
-        "round_results": []
+        "round_results": [],
+        "created_at": time.time()
     }
     
-    session_token = create_session_token(session_data)
+    # JWT carries only slim identity/state metadata
+    slim_data = {
+        "session_id": session_id,
+        "player_name": req.player_name,
+        "current_round": 1,
+        "selected_country": req.selected_country,
+        "status": "in_progress"
+    }
+    session_token = create_session_token(slim_data)
     
-    logger.info("Generated Session Token | Round 1 Location: {}", first_location['location']['name'])
+    logger.info("Generated slim JWT for session {} | Round 1 Location: {}", session_id, first_location['location']['name'])
     
     return {
         "session_token": session_token,
@@ -80,6 +96,12 @@ async def get_session_status(session_token: str = Query(...)):
     if session.get("status") == "completed":
         logger.warning("Session status check: SESSION ALREADY COMPLETED for player {}", session.get("player_name"))
         raise HTTPException(status_code=404, detail="Session is already completed.")
+    
+    session_id = session.get("session_id")
+    store_data = SESSION_STORE.get(session_id)
+    if not store_data:
+        logger.warning("Session status check: session_id {} not found in memory (server may have restarted)", session_id)
+        raise HTTPException(status_code=404, detail="Session data not found in server memory. Please start a new game.")
         
     logger.info("Session status check: ACTIVE | Player: {} | Round: {}", session.get('player_name'), session.get('current_round'))
     
@@ -87,8 +109,8 @@ async def get_session_status(session_token: str = Query(...)):
         "session_token": session_token,
         "player_name": session["player_name"],
         "current_round": session["current_round"],
-        "current_location": session["current_location"],
-        "round_results": session["round_results"]
+        "current_location": store_data["current_location"],
+        "round_results": store_data["round_results"]
     }
 
 @router.post("/session/evaluate")
@@ -104,11 +126,18 @@ async def evaluate_session_drawing(request: Request, req: SessionEvaluateRequest
     if session.get("status") == "completed":
         logger.warning("Evaluation failed: Session already completed")
         raise HTTPException(status_code=404, detail="Session already completed.")
+    
+    session_id = session.get("session_id")
+    store_data = SESSION_STORE.get(session_id)
+    if not store_data:
+        logger.warning("Evaluation failed: session_id {} not found in memory", session_id)
+        raise HTTPException(status_code=404, detail="Session data not found in server memory. Please start a new game.")
         
     current_round = session["current_round"]
     player_name = session["player_name"]
-    current_location = session["current_location"]
-    round_results = session.get("round_results", [])
+    selected_country = session.get("selected_country")
+    current_location = store_data["current_location"]
+    round_results = store_data.get("round_results", [])
     
     logger.info("Evaluating Player: '{}' | Round: {}/5 | Objective: '{}'", player_name, current_round, current_location.get('objective'))
     
@@ -119,9 +148,9 @@ async def evaluate_session_drawing(request: Request, req: SessionEvaluateRequest
         vqa_question=current_location.get("vqa_question"),
         target_state=current_location.get("target_state"),
         
-        session_id="jwt_session",
+        session_id=session_id,
         round_number=current_round,
-        selected_country=current_location.get("location", {}).get("country"),
+        selected_country=selected_country,
         r1_score=round_results[0].get("score") if len(round_results) > 0 else None,
         r1_strokes=round_results[0].get("strokes") if len(round_results) > 0 else None,
         r1_time=round_results[0].get("time") if len(round_results) > 0 else None,
@@ -163,19 +192,28 @@ async def evaluate_session_drawing(request: Request, req: SessionEvaluateRequest
         "effortScore": evaluation_res.get("effort_score", 5.0)
     }
     
-    updated_round_results = list(round_results)
-    updated_round_results.append(round_result)
+    # Update round results in memory
+    store_data["round_results"].append(round_result)
+    updated_round_results = store_data["round_results"]
     
     if current_round < 5:
         next_round = current_round + 1
         
         logger.info("Generating fresh location for round {}.", next_round)
-        next_location = await generate_location_data(next_round, current_location.get("location", {}).get("country"))
-            
-        session["current_round"] = next_round
-        session["current_location"] = next_location
-        session["round_results"] = updated_round_results
-        new_token = create_session_token(session)
+        next_location = await generate_location_data(next_round, selected_country)
+        
+        # Update heavy data in memory
+        store_data["current_location"] = next_location
+        
+        # Issue new slim JWT with bumped round number
+        slim_data = {
+            "session_id": session_id,
+            "player_name": player_name,
+            "current_round": next_round,
+            "selected_country": selected_country,
+            "status": "in_progress"
+        }
+        new_token = create_session_token(slim_data)
         
         logger.info("Round {} Complete. Advanced to Round {}. Next location: {}", 
                     current_round, next_round, next_location['location']['name'])
@@ -221,12 +259,21 @@ async def evaluate_session_drawing(request: Request, req: SessionEvaluateRequest
                 logger.error("Leaderboard submit ERROR: {}", save_err)
         else:
             logger.info("Leaderboard submit: Mock Mode (suppressed DB save).")
-            
-        session["status"] = "completed"
-        session["round_results"] = updated_round_results
-        new_token = create_session_token(session)
         
-        logger.info("Session status set to completed.")
+        # Issue completed JWT and evict session from memory
+        slim_data = {
+            "session_id": session_id,
+            "player_name": player_name,
+            "current_round": current_round,
+            "selected_country": selected_country,
+            "status": "completed"
+        }
+        new_token = create_session_token(slim_data)
+        
+        # Evict from memory — session is done
+        SESSION_STORE.pop(session_id, None)
+        
+        logger.info("Session {} completed and evicted from memory.", session_id)
         
         return {
             "session_token": new_token,
