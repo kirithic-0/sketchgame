@@ -116,8 +116,11 @@ def get_fallback_objective(round_num: int) -> Dict[str, Any]:
 async def call_gemini_vision(prompt: str, image_bytes: bytes, mime_type: str) -> str:
     if not settings.gemini_api_key:
         raise Exception("Gemini API key not configured")
+    # Fast, non-thinking flash-lite: ~2s vs ~25-40s for gemini-2.5-flash (a thinking
+    # model whose internal reasoning is wasted latency on this simple JSON task).
+    # The "-latest" alias avoids the "model no longer available" 404s that retire pinned ids.
     model = genai.GenerativeModel(
-        'gemini-2.5-flash',
+        'gemini-flash-lite-latest',
         generation_config=genai.GenerationConfig(response_mime_type="application/json")
     )
     response = model.generate_content([
@@ -178,10 +181,11 @@ async def generate_content_with_fallback(prompt: str, image_bytes: bytes, mime_t
     errors = []
     api_attempts = []
     
-    if settings.groq_api_key:
-        api_attempts.append(("Groq", call_groq_vision))
+    # Prefer Gemini first; fall back to Groq if Gemini fails or is unset
     if settings.gemini_api_key:
         api_attempts.append(("Gemini", call_gemini_vision))
+    if settings.groq_api_key:
+        api_attempts.append(("Groq", call_groq_vision))
         
     if not api_attempts:
         raise Exception("Neither Gemini nor Groq API keys are configured.")
@@ -200,7 +204,39 @@ async def generate_content_with_fallback(prompt: str, image_bytes: bytes, mime_t
     raise Exception(f"All vision APIs failed: {'; '.join(errors)}")
 
 
-async def generate_objective_for_image(image_url: str, round_num: int) -> Dict[str, Any]:
+async def reverse_geocode(client: httpx.AsyncClient, lat: float, lng: float) -> Optional[str]:
+    """Resolve coordinates to a human-readable place name via OpenStreetMap Nominatim.
+
+    Returns a string like "Baker Street, Westminster" or None on any failure, so callers
+    fall back to the generic "Random Spot near X" name. Nominatim asks for a descriptive
+    User-Agent and ~1 req/sec; game rounds are sequential so that budget holds.
+    """
+    try:
+        url = (
+            "https://nominatim.openstreetmap.org/reverse?format=jsonv2"
+            f"&lat={lat}&lon={lng}&zoom=16&addressdetails=1&accept-language=en"
+        )
+        headers = {"User-Agent": "GeoSketch-Game/1.0 (interactive street drawing game)"}
+        resp = await client.get(url, headers=headers, timeout=8.0)
+        if resp.status_code != 200:
+            logger.warning("Reverse geocode failed: HTTP {}", resp.status_code)
+            return None
+        addr = resp.json().get("address", {}) or {}
+        primary = (addr.get("road") or addr.get("pedestrian") or addr.get("neighbourhood")
+                   or addr.get("suburb") or addr.get("quarter"))
+        secondary = (addr.get("city") or addr.get("town") or addr.get("village")
+                     or addr.get("municipality") or addr.get("city_district") or addr.get("state"))
+        parts = [p for p in (primary, secondary) if p]
+        if parts:
+            # Dedupe while preserving order (primary/secondary can coincide in small places)
+            return ", ".join(dict.fromkeys(parts))
+        return None
+    except Exception as e:
+        logger.warning("Error during reverse geocoding: {}", e)
+        return None
+
+
+async def generate_objective_for_image(image_url: str, round_num: int, location_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if not settings.gemini_api_key and not settings.groq_api_key:
         return get_fallback_objective(round_num)
         
@@ -230,10 +266,20 @@ async def generate_objective_for_image(image_url: str, round_num: int) -> Dict[s
         else:
             specificity_guideline = "Make the objective extremely chaotic and demanding (e.g. 'Initiate an alien abduction on that pedestrian', 'Cause a volcanic eruption under that car while keeping the people happy')."
 
+        location_hint = ""
+        if location_context:
+            loc_str = ", ".join(p for p in (location_context.get("name"), location_context.get("country")) if p)
+            if loc_str:
+                location_hint = (
+                    f"This street scene is really located in {loc_str}. Where it feels natural, let your "
+                    f"command nod to this real place or its local culture — but never stop referring to the "
+                    f"actual visible elements in the scene.\n        "
+                )
+
         prompt = f"""
         You are the Game Master of GeoSketch — a chaotic, evil AI that wants players to carry out random acts of violence, destruction, or bizarre kindness/worship on the street scene.
         Analyze this street view scene.
-        Identify key elements in the scene (such as buildings, cars, pedestrians, bikes, trash cans, street lamps, walls, signs, etc.).
+        {location_hint}Identify key elements in the scene (such as buildings, cars, pedestrians, bikes, trash cans, street lamps, walls, signs, etc.).
         
         Generate a creative, location-specific objective/command for the player.
         IMPORTANT: Do NOT tell the player HOW to achieve it (do not say "draw a bomb on the car" or "draw a smiley face on the person"). 
@@ -282,7 +328,10 @@ async def generate_location_data(round_num: int, country: Optional[str] = None) 
             if filtered_mocks:
                 available_mocks = filtered_mocks
         loc = random.choice(available_mocks)
-        objective_info = await generate_objective_for_image(loc["fallbackUrl"], round_num)
+        objective_info = await generate_objective_for_image(
+            loc["fallbackUrl"], round_num,
+            location_context={"name": loc["name"], "country": loc["country"]}
+        )
         return {
             "location": loc,
             "imageUrl": loc["fallbackUrl"],
@@ -317,7 +366,7 @@ async def generate_location_data(round_num: int, country: Optional[str] = None) 
             searchLng = lng
             
             for attempt in range(8):
-                url = f"https://graph.mapillary.com/images?lat={searchLat}&lng={searchLng}&radius=50&limit=5&access_token={settings.mapillary_access_token}&fields=id,thumb_1024_url,thumb_2048_url,captured_at"
+                url = f"https://graph.mapillary.com/images?lat={searchLat}&lng={searchLng}&radius=50&limit=5&access_token={settings.mapillary_access_token}&fields=id,thumb_1024_url,thumb_2048_url,captured_at,geometry"
                 try:
                     response = await client.get(url)
                     if response.status_code == 200:
@@ -351,7 +400,27 @@ async def generate_location_data(round_num: int, country: Optional[str] = None) 
                                         logger.error(f"Error running ONNX inference: {e}")
                                 # --------------------------
                                 
-                                objective_info = await generate_objective_for_image(image_url, round_num)
+                                # Use the image's true coordinates (GeoJSON [lng, lat]) when Mapillary provides them
+                                geo = valid_image.get("geometry") or {}
+                                coords = geo.get("coordinates") if isinstance(geo, dict) else None
+                                if coords and len(coords) == 2:
+                                    img_lng, img_lat = coords[0], coords[1]
+                                else:
+                                    img_lat, img_lng = searchLat, searchLng
+
+                                location["lat"] = round(img_lat, 5)
+                                location["lng"] = round(img_lng, 5)
+
+                                # REVEAL: turn coordinates into a real place name (falls back silently)
+                                place_name = await reverse_geocode(client, img_lat, img_lng)
+                                if place_name:
+                                    location["name"] = place_name
+                                    logger.info("Reverse-geocoded location: {}", place_name)
+
+                                objective_info = await generate_objective_for_image(
+                                    image_url, round_num,
+                                    location_context={"name": location["name"], "country": location["country"]}
+                                )
                                 return {
                                     "location": location,
                                     "imageUrl": image_url,
